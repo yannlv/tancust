@@ -9,7 +9,7 @@ from yandextank.plugins.Console import screen as ConsoleScreen
 
 #from ...common.util import splitstring
 from yandextank.common.util import splitstring
-#from .reader import LocustReader, LocustStatsReader
+from .reader import LocustReader, LocustStatsReader
 #from ...stepper import StepperWrapper
 from yandextank.stepper import StepperWrapper
 
@@ -40,8 +40,9 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def __init__(self, core, cfg, cfg_updater):
         AbstractPlugin.__init__(self, core, cfg, cfg_updater)
- #       self.stats_reader = None
- #       self.reader = None
+        self._locustrunner=None
+        self.stats_reader = None
+        self.reader = None
         self.host = None
         self.web_host = ""
         self.port = 8089
@@ -66,10 +67,10 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.list_commands = False
         self.show_task_ratio = False
         self.show_task_ratio_json = False
-        self.show_version = False
+        self.show_version = True
         self.locustlogfile = False
         self.locustloglevel = 'INFO'
-
+        self._stat_log = None
 
         # setup logging
         ll.setup_logging(self.loglevel, self.logfile)
@@ -94,15 +95,21 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         logging.debug("Variables: %s", res)
         return res
 
-#    def get_reader(self):
-#        if self.reader is None:
-#            self.reader = LocustReader(self.locustlogfile)
-#        return self.reader
-#
-#    def get_stats_reader(self):
-#        if self.stats_reader is None:
-#            self.stats_reader = self.reader.stats_reader
-#        return self.stats_reader
+    @property
+    def stat_log(self):
+        if not self._stat_log:
+            self._stat_log = self.core.mkstemp(".log", "locust_stat_")
+        return self._stat_log
+
+    def get_reader(self):
+        if self.reader is None:
+            self.reader = LocustReader(self.locustlogfile)
+        return self.reader
+
+    def get_stats_reader(self):
+        if self.stats_reader is None:
+            self.stats_reader = LocustStatsReader(self.stat_log, None) #self.locust.get_info())
+            return self.stats_reader
 
     def configure(self):
         self.host = self.get_option("host")
@@ -144,51 +151,30 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 #            console.add_info_widget(widget)
 #            self.core.job.aggregator.add_result_listener(widget)
 
-
-    def start_test(self):
-        # setup logging
-        ll.setup_logging(self.loglevel, self.logfile)
-        if self.locustlogfile:
-            ll.setup_resplogging(self.locustloglevel, self.locustlogfile)
-        logger = logging.getLogger(__name__)
-
-        if self.show_version:
-            print "Locust %s".format(version)
-            sys.exit(0)
         try:
             locustfile = lm.find_locustfile(self.locustfile)
             if not locustfile:
-                logger.error("Locust plugin: Could not find any locustfile! Ensure file ends in '.py' and see --help for available options.")
+                logger.error("##### Locust plugin: Could not find any locustfile! Ensure file ends in '.py' and see --help for available options.")
                 sys.exit(1)
 
             if locustfile == "locust.py":
-                logger.error("Locust plugin: The locustfile must not be named `locust.py`. Please rename the file and try again.")
+                logger.error("##### Locust plugin: The locustfile must not be named `locust.py`. Please rename the file and try again.")
                 sys.exit(1)
 
             docstring, locusts = lm.load_locustfile(locustfile)
 
-            logging.info("Locust plugin: locustfile = {}".format(locustfile))
-
-
-#        logger.info("locustclass ? : {}".format(
-
-
-        #if options.list_commands:
-        #    console_logger.info("Available Locusts:")
-        #    for name in locusts:
-        #        console_logger.info("    " + name)
-        #    sys.exit(0)
+            logging.info("##### Locust plugin: locustfile = {}".format(locustfile))
 
             if not locusts:
-                logger.error("Locust plugin: No Locust class found!")
+                logger.error("##### Locust plugin: No Locust class found!")
                 sys.exit(1)
             else:
-                logger.info("Locust plugin: Locust classes found in {} : {}".format(locustfile, locusts))
+                logger.info("##### Locust plugin: Locust classes found in {} : {}".format(locustfile, locusts))
 
             locust_classes = list(locusts.values())
             #locust_classes = locusts
             options = Opts(**self.get_options())
-            print "main() : options = {}".format(options)
+            logger.info("Locust plugin: main() : options = {}".format(options))
 
             # run that shit
             if self.run_time:
@@ -204,45 +190,46 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     logger.info("Run time limit set to %s seconds" % self.run_time)
                     def timelimit_stop():
                         logger.info("Time limit reached. Stopping Locust.")
-                        lr.locust_runner.quit()
+                        self._locustrunner.quit()
                     gevent.spawn_later(self.run_time, timelimit_stop)
 
-            if not self.no_web and not self.slave:
+            if not self.no_web and not self.slave and self._locustrunner is None:
                 # spawn web greenlet
                 logger.info("Starting web monitor at %s:%s" % (self.web_host or "*", self.port))
                 main_greenlet = gevent.spawn(web.start, locust_classes, options)
 
 
-            if not self.master and not self.slave:
+            if not self.master and not self.slave and self._locustrunner is None:
                 logger.info("Locust plugin : LocalLocustRunner about to be launched")
-                lr.locust_runner = LocalLocustRunner(locust_classes, options)
+                self._locustrunner = LocalLocustRunner(locust_classes, options)
                 # spawn client spawning/hatching greenlet
                 if self.no_web:
-                    logger.info("Locust plugin : LocalLocustRunner.start_hatching()")
-                    lr.locust_runner.start_hatching(wait=True)
-                    main_greenlet = lr.locust_runner.greenlet
+                    logger.info("##### Locust plugin: LocalLocustRunner.start_hatching()")
+                    self._locustrunner.start_hatching(wait=True)
+                    main_greenlet = self._locustrunner.greenlet
                 if self.run_time:
-                    logger.info("Locust plugin : spawn_run_time_limit_greenlet()")
+                    logger.info("##### Locust plugin: spawn_run_time_limit_greenlet()")
                     spawn_run_time_limit_greenlet()
-            elif self.master:
-                lr.locust_runner = MasterLocustRunner(locust_classes, options)
+                    logger.info("##### Locust plugin: spawn_run_time_limit_greenlet() passed")
+            elif self.master and self._locustrunner is None:
+                self._locustrunner = MasterLocustRunner(locust_classes, options)
                 if self.no_web:
-                    while len(lr.locust_runner.clients.ready)<self.expect_slaves:
+                    while len(self._locustrunner.clients.ready)<self.expect_slaves:
                         logging.info("Waiting for slaves to be ready, %s of %s connected",
-                                     len(lr.locust_runner.clients.ready), self.expect_slaves)
+                                     len(self._locustrunner.clients.ready), self.expect_slaves)
                         time.sleep(1)
 
-                    lr.locust_runner.start_hatching(self.num_clients, self.hatch_rate)
+                    self._locustrunner.start_hatching(self.num_clients, self.hatch_rate)
                     main_greenlet = lr.locust_runner.greenlet
                     if self.run_time:
                         spawn_run_time_limit_greenlet()
-            elif self.slave:
+            elif self.slave and self._locustrunner is None:
                 if self.run_time:
                     logger.error("--run-time should be specified on the master node, and not on slave nodes")
                     sys.exit(1)
                 try:
-                    lr.locust_runner = SlaveLocustRunner(locust_classes, options)
-                    main_greenlet = lr.locust_runner.greenlet
+                    self._locustrunner = SlaveLocustRunner(locust_classes, options)
+                    main_greenlet = self._locustrunner.greenlet
                 except socket.error as e:
                     logger.error("Failed to connect to the Locust master: %s", e)
                     sys.exit(-1)
@@ -255,24 +242,39 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             #if not self.only_summary and (self.print_stats or (self.no_web and not self.slave)):
             #    gevent.spawn(stats_printer)
             #    print('### len(request_stats) = ' + str(len(lr.locust_runner.request_stats)) + '\n')
+            return self._locustrunner
 
         except Exception as e:
-            logger.error("### CRITICAL ERROR : %s", e)
+            logger.error("Locust plugin; prepare_test() CRITICAL ERROR : %s", e)
             sys.exit(1)
 
+    ### TODO : cleanup useless function
+    def locustrunner(self):
+        logger.info("Locust plugin: starting locustrunner()")
 
-        def shutdown(code=0):
-            """
-            Shut down locust by firing quitting event, printing stats and exiting
-            """
-            logger.info("Locust plugin: Shutting down (exit code %s), bye." % code)
+    def start_test(self):
+        # setup logging
+        ll.setup_logging(self.loglevel, self.logfile)
+        if self.locustlogfile:
+            ll.setup_resplogging(self.locustloglevel, self.locustlogfile)
+        #logger = logging.getLogger(__name__)
 
-            events.quitting.fire()
-            print_stats(lr.locust_runner.request_stats)
-            print_percentile_stats(lr.locust_runner.request_stats)
+        if self.show_version:
+            print "Locust plugin: Locust version = %s".format(version)
+            sys.exit(0)
 
-            print_error_report()
-            sys.exit(code)
+#        def shutdown(code=0):
+#            """
+#            Shut down locust by firing quitting event, printing stats and exiting
+#            """
+#            logger.info("Locust plugin: Shutting down (exit code %s), bye." % code)
+#
+#            events.quitting.fire()
+#            print_stats(lr.locust_runner.request_stats)
+#            print_percentile_stats(lr.locust_runner.request_stats)
+#
+#            print_error_report()
+#            sys.exit(code)
 
         # install SIGTERM handler
         def sig_term_handler():
@@ -282,15 +284,28 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
         try:
             logger.info("Locust plugin: Starting Locust %s" % version)
-            main_greenlet.join()
+            self._locustrunner.main_greenlet.join()
+            #main_greenlet.join()
             code = 0
-            if len(lr.locust_runner.errors):
+            if len(self._locustrunner.errors):
                 code = 1
                 shutdown(code=code)
         except KeyboardInterrupt as e:
             shutdown(0)
 
 
+	def shutdown(self, code=0):
+		"""
+		Shut down locust by firing quitting event, printing stats and exiting
+		"""
+		logger.info("Locust plugin: Shutting down (exit code %s), bye." % code)
+
+		events.quitting.fire()
+		print_stats(_locust.request_stats)
+		print_percentile_stats(_locust.request_stats)
+
+		print_error_report()
+		sys.exit(code)
 
     def is_test_finished(self):
         logger.info("Locust plugin: fetching locust status")

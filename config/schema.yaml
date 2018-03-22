@@ -1,0 +1,84 @@
+host:
+  type: string
+  default: none
+#web_host:
+#  type: string
+#  default: ''
+port:
+  type: integer
+  default: 8089
+locustfile:
+  type: string
+  default: 'locustfile'
+#master:
+#  type: boolean
+#  default: false
+#slave:
+#  type: boolean
+#  default: false
+#master_host:
+#  type: string
+#  default: '127.0.0.1'
+#master_port:
+#  type: integer
+#  default: 5557
+#master_bind_host:
+#  type: string
+#  default: '*'
+#master_bind_port:
+#  type: integer
+#  default: 5557
+#no_web:
+#  type: boolean
+#  default: true
+num_clients:
+  type: integer
+  default: 1
+hatch_rate:
+  type: float
+  default: 1
+num_requests:
+  type: integer
+  default: 1
+run_time:
+  type: string
+  default: 60s
+loglevel:
+  type: string
+  default: 'INFO'
+logfile:
+  type: string
+  default: none
+csv:
+  type: string
+  default: none
+#csvfilebase:
+#  type: string
+#  default: none
+#csvappend:
+#  type: boolean
+#  default: true
+#print_stats:
+#  type: boolean
+#  default: true
+#only_summary:
+#  type: boolean
+#  default: true
+#list_commands:
+#  type: boolean
+#  default: false
+#show_task_ratio:
+#  type: boolean
+#  default: false
+#show_task_ratio_json:
+#  type: boolean
+#  default: false
+#show_version:
+#  type: boolean
+#  default: false
+locustlogfile:
+  type: string
+  default: none
+locustloglevel:
+  type: string
+  default: 'INFO'

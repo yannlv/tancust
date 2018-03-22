@@ -3,7 +3,7 @@ Locust resplog reader. Read chunks from resplog and produce data frames
 """
 import pandas as pd
 import numpy as np
-import queue as q
+#import queue as q
 import logging
 import json
 import time
@@ -11,8 +11,8 @@ import datetime
 import itertools as itt
 from StringIO import StringIO
 
-from yandextank.aggregator import TimeChopper
-from yandextank.aggregator import aggregator as agg
+#from yandextank.aggregator import TimeChopper
+#from yandextank.aggregator import aggregator as agg
 
 
 logger = logging.getLogger(__name__)
@@ -69,92 +69,57 @@ def string_to_df(data):
 
 class LocustReader(object):
 
-    def __init__(self, filename):
+    def __init__(self, filename, cache_size=1024*1024*50):
         self.buffer = ""
         self.stat_buffer = ""
-        self.locust_log = filename
+        self.locust_log = open(filename, 'r')
         self.locust_finished = False
-        self.agg_finished = False
         self.closed = False
-        self.stat_queue = q.Queue()
-        self.stats_reader = LocustStatAggregator(
-            TimeChopper(self._read_stat_queue(), 300000000))
+        self.cache_size = cache_size
 
-    def _read_stat_queue(self):
-        print("############ self.closed : {}".format(self.closed))
-        print("############ self.stat_queue.qsize() : {}".format(self.stat_queue.qsize()))
-        while not self.closed:
-            for _ in range(self.stat_queue.qsize()):
-                print("###########  stat_queue.qsize() = {}".format(self.stat_queue.qsize()))
-                try:
-                    print("########### in the try")
-                    si = self.stat_queue.get_nowait()
-                    if si is not None:
-                        yield si
-                        print("########### in the try/yield")
-                except q.Empty:
-                    print("########### in the except")
-                    break
 
-    def _read_locust_log_chunk(self, locust_log):
-        data = locust_log.read(1024 * 1024 * 10)
+    def _read_locust_log_chunk(self):
+        data = self.locust_log.read(self.cache_size)
         if data:
             parts = data.rsplit('\n', 1)
             if len(parts) > 1:
                 ready_chunk = self.buffer + parts[0] + '\n'
                 self.buffer = parts[1]
-                df = string_to_df(ready_chunk)
-                self.stat_queue.put(df)
-                return df
+                return string_to_df(ready_chunk)
             else:
                 self.buffer += parts[0]
         else:
-            if self.locust_finished:
-                self.agg_finished = True
-            locust_log.readline()
+            self.buffer += self.locust_log.readline()
         return None
 
     def __iter__(self):
-        with open(self.locust_log, 'r') as locust_log:
-            while not self.closed:
-                yield self._read_locust_log_chunk(locust_log)
-            yield self._read_locust_log_chunk(locust_log)
+        while not self.closed:
+            yield self._read_locust_log_chunk()
+        # read end
+        chunk = self._read_locust_log_chunk()
+        while chunk is not None:
+            yield chunk
+            chunk = self._read_locust_log_chunk()
+        # don't forget the buffer
+        if self.buffer:
+            yield string_to_df(self.buffer)
+
+        self.locust_log.close()
+
 
     def close(self):
         self.closed = True
 
 
 
-
-class LocustStatAggregator(object):
-    def __init__(self, source):
-        self.worker = agg.Worker({"allThreads": ["max"]}, False)
-        self.source = source
-
-    def __iter__(self):
-        for ts, chunk in self.source:
-            stats = self.worker.aggregate(chunk)
-            yield [{
-                'ts': ts,
-                'metrics': {
-                    'instances': stats['allThreads']['max'],
-                    'reqps': 0
-                }
-            }]
-
-    def close(self):
-        pass
-
-
-
 class LocustStatsReader(object):
-    def __init__(self, filename, locust_info):
+    def __init__(self, filename, locust_info, cache_size=1024 * 1024 * 50):
         self.locust_info = locust_info
-        self.buffer = ""
         self.stat_buffer = ""
         self.stat_filename = filename
         self.closed = False
         self.start_time = 0
+        self.cache_size = cache_size
 
     def _decode_stat_data(self, chunk):
         """
@@ -174,8 +139,8 @@ class LocustStatsReader(object):
 
             offset = chunk_date - 1 - self.start_time
             reqps = 0
-            if offset >= 0 and offset < len(self.locust_info.steps):
-                reqps = self.locust_info.steps[offset][0]
+            #if offset >= 0 and offset < len(self.locust_info.steps):  #DEBUG
+            #    reqps = self.locust_info.steps[offset][0]             #DEBUG
             yield {
                 'ts': chunk_date - 1,
                 'metrics': {
@@ -185,7 +150,7 @@ class LocustStatsReader(object):
             }
 
     def _read_stat_data(self, stat_file):
-        chunk = stat_file.read(1024 * 1024 * 50)
+        chunk = stat_file.read(self.cache_size)
         if chunk:
             self.stat_buffer += chunk
             parts = self.stat_buffer.rsplit('\n},', 1)
