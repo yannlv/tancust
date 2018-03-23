@@ -45,13 +45,15 @@ def string_to_df(data):
     chunk = pd.read_csv(StringIO(data), sep='\t', names=locust_log_columns, dtype=dtypes, engine='python')
 
     # DEBUG
-    logger.debug("\n\n####### Chunk :\n{}\n\n".format(chunk))
+    logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
     # format locust log date to timestamp : '[2017-12-28 14:46:34,327]' -> 1514468794.327
     locust_log_dt_obj = datetime.datetime.strptime(chunk.send_ts[0].replace('[','').replace(']',''), '%Y-%m-%d %H:%M:%S,%f')
     chunk['ts'] = time.mktime(locust_log_dt_obj.timetuple()) + locust_log_dt_obj.microsecond / 1e3
-    chunk['test'] = chunk.http_code.astype(np.str) + chunk.http_method
-    logger.debug("\n\n####### Chunk :\n{}\n\n".format(chunk))
+
+	# DEBUG
+    #chunk['test'] = chunk.http_code.astype(np.str) + chunk.http_method
+    logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
     ##chunk['receive_ts'] = chunk.send_ts + chunk.interval_real / 1e6
     chunk['receive_sec'] = chunk.ts.astype(np.int64)
@@ -62,8 +64,10 @@ def string_to_df(data):
     #chunk['tag'] = chunk.tag.str.rsplit('#', 1, expand=True)[0]
     chunk.set_index(['receive_sec'], inplace=True)
 
+    # DEBUG
     logger.debug("Chunk decode time: %.2fms", (time.time() - start_time) * 1000)
-    logger.debug("\n####### Chunk : {}".format(chunk))
+    logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
+
     return chunk
 
 
