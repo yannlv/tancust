@@ -279,7 +279,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         # install SIGTERM handler
         def sig_term_handler():
             logger.info("Locust plugin: Got SIGTERM signal")
-            shutdown(0)
+            self.shutdown(0)
             gevent.signal(signal.SIGTERM, sig_term_handler)
 
         try:
@@ -289,16 +289,16 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             code = 0
             if len(self._locustrunner.errors):
                 code = 1
-                shutdown(code=code)
+                self.shutdown(code=code)
         except KeyboardInterrupt as e:
-            shutdown(0)
+            self.shutdown(0)
 
 
 	def shutdown(self, code=0):
 		"""
 		Shut down locust by firing quitting event, printing stats and exiting
 		"""
-		logger.info("Locust plugin: Shutting down (exit code %s), bye." % code)
+		logger.info("##### Locust plugin: Shutting down (exit code %s), bye." % code)
 
 		events.quitting.fire()
 		print_stats(_locust.request_stats)
@@ -308,8 +308,8 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 		sys.exit(code)
 
     def is_test_finished(self):
-        logger.info("Locust plugin: fetching locust status")
-        return 0
+        logger.info("##### Locust plugin: Fetching locust status")
+        #return 0 
 #        if lr.locust_runner.user_count() > 1:
 #            return -1
 #        else:
@@ -318,10 +318,10 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def end_test(self, retcode):
         if lr.locust_runner.user_count > 1:
-            logger.info("Terminating Locust")
-            shutdown(code=0)
+            logger.info("##### Locust plugin: Terminating Locust")
+            self.shutdown(code=0)
         else:
-            logger.info("Locust has been terminated")
+            logger.info("##### Locust plugin: Locust has been terminated")
         return retcode
 
 class Opts:
