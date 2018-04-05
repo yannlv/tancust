@@ -138,18 +138,21 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def prepare_test(self):
         logger = logging.getLogger(__name__)
-#        aggregator = None
 
-#        try:
-#            console = self.core.get_plugin_of_type(ConsolePlugin)
-#        except Exception as ex:
-#            logger.debug("Console not found: %s", ex)
-#            console = None
+# DEBUG START
+        aggregator = None
 
-#       if console:
-#            widget = LocustInfoWidget(self)
-#            console.add_info_widget(widget)
-#            self.core.job.aggregator.add_result_listener(widget)
+        try:
+            console = self.core.get_plugin_of_type(ConsolePlugin)
+        except Exception as ex:
+            logger.debug("Console not found: %s", ex)
+            console = None
+
+        if console:
+            widget = LocustInfoWidget(self)
+            console.add_info_widget(widget)
+            self.core.job.aggregator.add_result_listener(widget)
+# DEBUG END
 
         try:
             locustfile = lm.find_locustfile(self.locustfile)
