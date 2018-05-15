@@ -11,15 +11,15 @@ import datetime
 import itertools as itt
 from StringIO import StringIO
 
-#from yandextank.aggregator import TimeChopper
-#from yandextank.aggregator import aggregator as agg
+from yandextank.aggregator import TimeChopper
+from yandextank.aggregator import aggregator as agg
 
 
 logger = logging.getLogger(__name__)
 
 locust_log_columns = [
     'send_ts', 'host_loglevel_logger', 'tag', 'http_method', 'http_code', 'url',
-    'resp_time', 'content_size'
+    'resp_time', 'content_size'#, 'size_in'
 ]
 
 dtypes = {
@@ -32,7 +32,8 @@ dtypes = {
     'url': np.str,
     'resp_time': np.float32,
     #'content_size': np.int64
-    'content_size': np.str
+    'content_size': np.str,
+    #'size_in': np.int64
 }
 
 
@@ -45,7 +46,7 @@ def string_to_df(data):
     chunk = pd.read_csv(StringIO(data), sep='\t', names=locust_log_columns, dtype=dtypes, engine='python')
 
     # DEBUG
-    logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
+    #logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
     # format locust log date to timestamp : '[2017-12-28 14:46:34,327]' -> 1514468794.327
     locust_log_dt_obj = datetime.datetime.strptime(chunk.send_ts[0].replace('[','').replace(']',''), '%Y-%m-%d %H:%M:%S,%f')
@@ -53,7 +54,7 @@ def string_to_df(data):
 
 	# DEBUG
     #chunk['test'] = chunk.http_code.astype(np.str) + chunk.http_method
-    logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
+    #logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
     ##chunk['receive_ts'] = chunk.send_ts + chunk.interval_real / 1e6
     chunk['receive_sec'] = chunk.ts.astype(np.int64)
@@ -64,9 +65,12 @@ def string_to_df(data):
     #chunk['tag'] = chunk.tag.str.rsplit('#', 1, expand=True)[0]
     chunk.set_index(['receive_sec'], inplace=True)
 
+    # DEBUG / workaround for 'size_in' key
+    #chunk['size_in'] = '0'.astype(np.int64)
+
     # DEBUG
-    logger.debug("Chunk decode time: %.2fms", (time.time() - start_time) * 1000)
-    logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
+    #logger.debug("Chunk decode time: %.2fms", (time.time() - start_time) * 1000)
+    logger.info("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
     return chunk
 
@@ -80,7 +84,17 @@ class LocustReader(object):
         self.locust_finished = False
         self.closed = False
         self.cache_size = cache_size
+        self.stats_reader = LocustStatAggregator(TimeChopper(self._read_stat_queue(), 3))
 
+    def _read_stat_queue(self):
+        while not self.closed:
+            for _ in range(self.stat_queue.qsize()):
+                try:
+                    si = self.stat_queue.get_nowait()
+                    if si is not None:
+                        yield si
+                except q.Empty:
+                    break
 
     def _read_locust_log_chunk(self):
         data = self.locust_log.read(self.cache_size)
@@ -113,6 +127,25 @@ class LocustReader(object):
 
     def close(self):
         self.closed = True
+
+class LocustStatAggregator(object):
+    def __init__(self, source):
+        self.worker = agg.Worker({"allThreads": ["max"]}, False)
+        self.source = source
+
+    def __iter__(self):
+        for ts, chunk in self.source:
+            stats = self.worker.aggregate(chunk)
+            yield [{
+                'ts': ts,
+                'metrics': {
+                    'instances': stats['allThreads']['max'],
+                    'reqps': 0
+                }
+            }]
+
+    def close(self):
+        pass
 
 
 
