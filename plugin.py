@@ -9,7 +9,7 @@ from yandextank.plugins.Console import screen as ConsoleScreen
 
 #from ...common.util import splitstring
 from yandextank.common.util import splitstring
-from .reader import LocustReader, LocustStatsReader
+from .reader import LocustReader #, LocustStatsReader
 #from ...stepper import StepperWrapper
 from yandextank.stepper import StepperWrapper
 
@@ -77,7 +77,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         # setup logging
         ll.setup_logging(self.loglevel, self.logfile)
         if self.locustlogfile:
-            logger.info("######## DEBUG: configuring Locust resplog")
+            logger.debug("######## DEBUG: configuring Locust resplog")
             ll.setup_resplogging(self.locustloglevel, self.locustlogfile)
 
 
@@ -112,7 +112,8 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
     def get_stats_reader(self):
         if self.stats_reader is None:
             #self.stats_reader = LocustStatsReader(self.stat_log, None) #self.locust.get_info())
-            self.stats_reader = LocustStatsReader(self.locustlogfile, None) #self.locust.get_info())
+            self.stats_reader = self.reader.stats_reader
+            logger.info("######## DEBUG: plugin.reader.stats_reader.source = %s" % self.stats_reader.source)
             return self.stats_reader
 
     def configure(self):
@@ -145,25 +146,24 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         logger = logging.getLogger(__name__)
 
 # DEBUG START
-        aggregator = None
 
         try:
-            logger.info("######## DEBUG: looking for a console object")
+            logger.debug("######## DEBUG: looking for a console object")
+            ### DEBUG: enable/disable Console
             console = self.core.get_plugin_of_type(ConsolePlugin)
         except Exception as ex:
-            logger.debug("Console not found: %s", ex)
-            logger.info("######## DEBUG: Console not found")
+            logger.debug("######## DEBUG: Console not found: %s", ex)
             console = None
 
         if console:
-            logger.info("######## DEBUG: console found")
+            logger.debug("######## DEBUG: console found")
             widget = LocustInfoWidget(self)
             console.add_info_widget(widget)
-            logger.info("######## DEBUG: locust widget added to console")
+            logger.debug("######## DEBUG: locust widget added to console")
             self.core.job.aggregator.add_result_listener(widget)
-            logger.info("######## DEBUG: add result listener")
+            logger.debug("######## DEBUG: add result listener")
 # DEBUG END
-        aggregator = self.core.job.aggregator
+        #aggregator = self.core.job.aggregator
         try:
 
             locustfile = lm.find_locustfile(self.locustfile)
@@ -226,7 +226,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
         # install SIGTERM handler
         def sig_term_handler():
-            logger.info("Locust plugin: Got SIGTERM signal")
+            logger.info("##### Locust plugin: Got SIGTERM signal")
             self.shutdown(0)
             gevent.signal(signal.SIGTERM, sig_term_handler)
 
@@ -320,7 +320,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         sys.exit(code)
 
     def is_test_finished(self):
-        logger.info("##### Locust plugin: is_test_finished()? -> Fetching locust status")
+        logger.debug("######## DEBUG: is_test_finished()? -> Fetching locust status")
 
         ####### DEBUG
         return -1
@@ -355,104 +355,120 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
         AbstractInfoWidget.__init__(self)
         self.krutilka = ConsoleScreen.krutilka()
         self.locust = locust
-        self.active_threads = 0
-        self.RPS = 0
+        self.active_threads = 10
+        self.RPS = 100
+        logger.debug('######## DEBUG: LocustInfoWidget __init__')
 
     def get_index(self):
+        logger.debug('######## DEBUG: LocustInfoWidget get_index()')
         return 0
 
     def on_aggregated_data(self, data, stats):
-        #self.active_threads = stats['metrics']['instances']
+        self.active_threads = stats['metrics']['instances']
         ### DEBUG
-        self.active_threads = 10
+        #self.active_threads = 10
         self.RPS = data['overall']['interval_real']['len']
+        logger.debug('######## DEBUG: LocustInfoWidget on_aggregated_data(): %s' % str(stats))
 
     def render(self, ConsoleScreen):
         color_bg = ConsoleScreen.markup.BG_CYAN
         res = ''
-        res += '\nLocust info :'
+        locust = '########## LOCUST INFO: ##########'
+        space = ConsoleScreen.right_panel_width - len(locust) - 1
+        left_spaces = space / 2
+        right_spaces = space / 2
+
+        #dur_seconds = int(time.time()) - int(self.locust.start_time)
+        #duration = str(datetime.timedelta(seconds=dur_seconds))
+
+        template = ConsoleScreen.markup.BG_CYAN + '#' * left_spaces + locust + ' '
+        template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
+
+
+        res += "%s" % template
+        logger.debug('######## DEBUG: LocustInfoWidget render()')
 
         return res
 
-class UsedInstancesCriterion(AbstractCriterion):
-    """
-    Autostop criterion, based on active instances count
-    """
-    RC_INST = 24
-
-    @staticmethod
-    def get_type_string():
-        return 'instances'
-
-    def __init__(self, autostop, param_str):
-        AbstractCriterion.__init__(self)
-        self.seconds_count = 0
-        self.autostop = autostop
-        self.threads_limit = 1
-
-        level_str = param_str.split(',')[0].strip()
-        if level_str[-1:] == '%':
-            self.level = float(level_str[:-1]) / 100
-            self.is_relative = True
-        else:
-            self.level = int(level_str)
-            self.is_relative = False
-        self.seconds_limit = expand_to_seconds(param_str.split(',')[1])
-
-        try:
-            locust = autostop.core.get_plugin_of_type(Plugin)
-            info = locust.get_info()
-            if info:
-                self.threads_limit = info.instances
-            if not self.threads_limit:
-                raise ValueError(
-                    "Cannot create 'instances' criterion"
-                    " with zero instances limit")
-        except KeyError:
-            logger.warning("No locust module, 'instances' autostop disabled")
-
-    def notify(self, data, stat):
-        threads = stat["metrics"]["instances"]
-        if self.is_relative:
-            threads = float(threads) / self.threads_limit
-        if threads > self.level:
-            if not self.seconds_count:
-                self.cause_second = (data, stat)
-
-            logger.debug(self.explain())
-
-            self.seconds_count += 1
-            self.autostop.add_counting(self)
-            if self.seconds_count >= self.seconds_limit:
-                return True
-        else:
-            self.seconds_count = 0
-
-        return False
-
-    def get_rc(self):
-        return self.RC_INST
-
-    def get_level_str(self):
-        """
-        String value for instances level
-        """
-        if self.is_relative:
-            level_str = str(100 * self.level) + "%"
-        else:
-            level_str = self.level
-        return level_str
-
-    def explain(self):
-        items = (
-            self.get_level_str(), self.seconds_count,
-            self.cause_second[0].get('ts'))
-        return (
-            "Testing threads (instances) utilization"
-            " higher than %s for %ss, since %s" % items)
-
-    def widget_explain(self):
-        items = (self.get_level_str(), self.seconds_count, self.seconds_limit)
-        return "Instances >%s for %s/%ss" % items, float(
-            self.seconds_count) / self.seconds_limit
-
+#class UsedInstancesCriterion(AbstractCriterion):
+#    """
+#    Autostop criterion, based on active instances count
+#    """
+#    RC_INST = 24
+#
+#    @staticmethod
+#    def get_type_string():
+#        return 'instances'
+#
+#    def __init__(self, autostop, param_str):
+#        AbstractCriterion.__init__(self)
+#        self.seconds_count = 0
+#        self.autostop = autostop
+#        self.threads_limit = 1
+#
+#        level_str = param_str.split(',')[0].strip()
+#        if level_str[-1:] == '%':
+#            self.level = float(level_str[:-1]) / 100
+#            self.is_relative = True
+#        else:
+#            self.level = int(level_str)
+#            self.is_relative = False
+#        self.seconds_limit = expand_to_seconds(param_str.split(',')[1])
+#
+#        try:
+#            locust = autostop.core.get_plugin_of_type(Plugin)
+#            info = locust.get_info()
+#            if info:
+#                self.threads_limit = info.instances
+#            if not self.threads_limit:
+#                raise ValueError(
+#                    "Cannot create 'instances' criterion"
+#                    " with zero instances limit")
+#        except KeyError:
+#            logger.warning("No locust module, 'instances' autostop disabled")
+#
+#    def notify(self, data, stat):
+#        threads = stat["metrics"]["instances"]
+#        if self.is_relative:
+#            threads = float(threads) / self.threads_limit
+#        if threads > self.level:
+#            if not self.seconds_count:
+#                self.cause_second = (data, stat)
+#
+#            logger.debug(self.explain())
+#
+#            self.seconds_count += 1
+#            self.autostop.add_counting(self)
+#            if self.seconds_count >= self.seconds_limit:
+#                return True
+#        else:
+#            self.seconds_count = 0
+#
+#        return False
+#
+#    def get_rc(self):
+#        return self.RC_INST
+#
+#    def get_level_str(self):
+#        """
+#        String value for instances level
+#        """
+#        if self.is_relative:
+#            level_str = str(100 * self.level) + "%"
+#        else:
+#            level_str = self.level
+#        return level_str
+#
+#    def explain(self):
+#        items = (
+#            self.get_level_str(), self.seconds_count,
+#            self.cause_second[0].get('ts'))
+#        return (
+#            "Testing threads (instances) utilization"
+#            " higher than %s for %ss, since %s" % items)
+#
+#    def widget_explain(self):
+#        items = (self.get_level_str(), self.seconds_count, self.seconds_limit)
+#        return "Instances >%s for %s/%ss" % items, float(
+#            self.seconds_count) / self.seconds_limit
+#
