@@ -98,11 +98,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         logger.debug("Variables: %s", res)
         return res
 
-#    @property
-#    def stat_log(self):
-#        if not self._stat_log:
-#            self._stat_log = self.core.mkstemp(".log", "locust_stat_")
-#        return self._stat_log
 
     def get_reader(self):
         if self.reader is None:
@@ -111,7 +106,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def get_stats_reader(self):
         if self.stats_reader is None:
-            #self.stats_reader = LocustStatsReader(self.stat_log, None) #self.locust.get_info())
             self.stats_reader = self.reader.stats_reader
             logger.info("######## DEBUG: plugin.reader.stats_reader.source = %s" % self.stats_reader.source)
             return self.stats_reader
@@ -130,12 +124,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.locustlogfile = self.get_option("locustlogfile")
         self.locustloglevel = self.get_option("locustloglevel")
         self.show_version = True
-#        try:
-#            autostop = self.core.get_plugin_of_type(AutostopPlugin)
-#            autostop.add_criterion_class(UsedInstancesCriterion)
-#        except KeyError:
-#            logger.debug(
-#                "No autostop plugin found, not adding instances criterion")
 
     def get_options(self):
         options = {optname : self.__getattribute__(optname) for optname in self.get_available_options()}
@@ -145,7 +133,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
     def prepare_test(self):
         logger = logging.getLogger(__name__)
 
-# DEBUG START
 
         try:
             logger.debug("######## DEBUG: looking for a console object")
@@ -162,8 +149,8 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             logger.debug("######## DEBUG: locust widget added to console")
             self.core.job.aggregator.add_result_listener(widget)
             logger.debug("######## DEBUG: add result listener")
-# DEBUG END
-        #aggregator = self.core.job.aggregator
+
+
         try:
 
             locustfile = lm.find_locustfile(self.locustfile)
@@ -195,9 +182,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             logger.error("##### Locust plugin: prepare_test() CRITICAL ERROR : %s", e)
             sys.exit(1)
 
-    ### TODO : cleanup useless function
-    #def locustrunner(self):
-    #    logger.info("Locust plugin: starting locustrunner()")
 
     def start_test(self):
         # setup logging
@@ -211,19 +195,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             #print "Locust plugin: Locust version = %s".format(version)
             #sys.exit(0)
 
-#        def shutdown(code=0):
-#            """
-#            Shut down locust by firing quitting event, printing stats and exiting
-#            """
-#            logger.info("Locust plugin: Shutting down (exit code %s), bye." % code)
-#
-#            events.quitting.fire()
-#            print_stats(lr.locust_runner.request_stats)
-#            print_percentile_stats(lr.locust_runner.request_stats)
-#
-#            print_error_report()
-#            sys.exit(code)
-
         # install SIGTERM handler
         def sig_term_handler():
             logger.info("##### Locust plugin: Got SIGTERM signal")
@@ -233,9 +204,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         try:
             logger.info("##### Locust plugin: Starting Locust %s" % version)
 
-######## DEBUG START
-
-            # run that shit
+            # run the locust
             if self.run_time:
                 if not self.no_web:
                     logger.error("##### Locust plugin: The --run-time argument can only be used together with --no-web")
@@ -294,11 +263,10 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     sys.exit(-1)
             return self._locustrunner
 
-######## DEBUG STOP
 
-            #self._locustrunner.main_greenlet.join()
             self._locustrunner.greenlet.join()
             code = 0
+            widget.__dict__.update(locust=_locustrunner)
             if len(self._locustrunner.errors):
                 code = 1
                 self.shutdown(code=code)
@@ -315,30 +283,31 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         events.quitting.fire()
         print_stats(self._locustrunner.request_stats)
         print_percentile_stats(self._locustrunner.request_stats)
-
         print_error_report()
+
+        self._locustrunner.stop
+        self.reader.close()
         sys.exit(code)
 
     def is_test_finished(self):
+        """
+        Fetch locustrunner status: 'ready', 'hatching', 'running', 'stopped' and returns status code
+        """
         logger.debug("######## DEBUG: is_test_finished()? -> Fetching locust status")
-
-        ####### DEBUG
-        return -1
-
-        #return 0 
-#        if lr.locust_runner.user_count() > 1:
-#            return -1
-#        else:
-#            logger.info("Locust finished")
-#            return 0
+        logger.debug("######## DEBUG: is_test_finished() -> self._locustrunner.state = {}".format(self._locustrunner.state))
+        if self._locustrunner.state == 'stopped':
+            return 0
+        else:
+           return -1
 
     def end_test(self, retcode):
-        #if lr.locust_runner.user_count > 1:
-        if 2 > 1:
+        if self.is_test_finished() < 0:
             logger.info("##### Locust plugin: Terminating Locust")
             self.shutdown(code=0)
         else:
             logger.info("##### Locust plugin: Locust has been terminated")
+            self.shutdown(code=0)
+            sys.exit(code)
         return retcode
 
 class Opts:
@@ -361,28 +330,29 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 
     def get_index(self):
         logger.debug('######## DEBUG: LocustInfoWidget get_index()')
-        return 0
+        return 100
 
     def on_aggregated_data(self, data, stats):
-        self.active_threads = stats['metrics']['instances']
+        #self.active_threads = stats['metrics']['instances']
         ### DEBUG
-        #self.active_threads = 10
-        self.RPS = data['overall']['interval_real']['len']
+        self.active_threads = self.locust.user_count
+        #self.RPS = data['overall']['interval_real']['len']
         logger.debug('######## DEBUG: LocustInfoWidget on_aggregated_data(): %s' % str(stats))
 
     def render(self, ConsoleScreen):
         color_bg = ConsoleScreen.markup.BG_CYAN
         res = ''
-        locust = '########## LOCUST INFO: ##########'
-        space = ConsoleScreen.right_panel_width - len(locust) - 1
+        banner = '########## LOCUST INFO: ##########'
+        space = ConsoleScreen.right_panel_width - len(banner) - 1
         left_spaces = space / 2
         right_spaces = space / 2
 
         #dur_seconds = int(time.time()) - int(self.locust.start_time)
         #duration = str(datetime.timedelta(seconds=dur_seconds))
 
-        template = ConsoleScreen.markup.BG_CYAN + '#' * left_spaces + locust + ' '
+        template = ConsoleScreen.markup.BG_CYAN + '#' * left_spaces + banner + ' '
         template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
+        template += "##\tActive users : {}\n".format(self.locust.user_count)
 
 
         res += "%s" % template
