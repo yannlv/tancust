@@ -43,6 +43,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self._locustrunner = None
         self._locustclasses = None
         self._options = None
+        self._user_count = 0
         self.stats_reader = None
         self.reader = None
         self.host = None
@@ -266,7 +267,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
             self._locustrunner.greenlet.join()
             code = 0
-            widget.__dict__.update(locust=_locustrunner)
             if len(self._locustrunner.errors):
                 code = 1
                 self.shutdown(code=code)
@@ -296,9 +296,11 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         logger.debug("######## DEBUG: is_test_finished()? -> Fetching locust status")
         logger.debug("######## DEBUG: is_test_finished() -> self._locustrunner.state = {}".format(self._locustrunner.state))
         if self._locustrunner.state == 'stopped':
+            self._user_count = 0
             return 0
         else:
-           return -1
+            self._user_count = self._locustrunner.user_count
+            return -1
 
     def end_test(self, retcode):
         if self.is_test_finished() < 0:
@@ -320,24 +322,22 @@ class Opts:
 class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
     """ Right panel widget with Locust test info """
 
-    def __init__(self, locust):
+    def __init__(self, sender):
         AbstractInfoWidget.__init__(self)
         self.krutilka = ConsoleScreen.krutilka()
-        self.locust = locust
-        self.active_threads = 10
-        self.RPS = 100
-        logger.debug('######## DEBUG: LocustInfoWidget __init__')
+        self.owner = sender
+        self.active_threads = 0
+        self.RPS = 0
 
     def get_index(self):
         logger.debug('######## DEBUG: LocustInfoWidget get_index()')
         return 100
 
     def on_aggregated_data(self, data, stats):
-        #self.active_threads = stats['metrics']['instances']
         ### DEBUG
-        self.active_threads = self.locust.user_count
+        self.active_threads = self.owner._user_count
         #self.RPS = data['overall']['interval_real']['len']
-        logger.debug('######## DEBUG: LocustInfoWidget on_aggregated_data(): %s' % str(stats))
+        logger.info('######## DEBUG: LocustInfoWidget on_aggregated_data(): %s' % str(stats))
 
     def render(self, ConsoleScreen):
         color_bg = ConsoleScreen.markup.BG_CYAN
@@ -352,7 +352,7 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 
         template = ConsoleScreen.markup.BG_CYAN + '#' * left_spaces + banner + ' '
         template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
-        template += "##\tActive users : {}\n".format(self.locust.user_count)
+        template += "##\tActive users : {}\n".format(self.active_threads)
 
 
         res += "%s" % template
