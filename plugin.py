@@ -44,10 +44,12 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self._locustclasses = None
         self._options = None
         self._user_count = 0
+        self._state = ''
+        self._locuststats = ''
         self.stats_reader = None
         self.reader = None
         self.host = None
-        self.web_host = ""
+        self.web_host = ''
         self.port = 8089
         self.locustfile = 'locustfile'
         self.master = False
@@ -108,7 +110,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
     def get_stats_reader(self):
         if self.stats_reader is None:
             self.stats_reader = self.reader.stats_reader
-            logger.info("######## DEBUG: plugin.reader.stats_reader.source = %s" % self.stats_reader.source)
+            logger.debug("######## DEBUG: plugin.reader.stats_reader.source = %s" % self.stats_reader.source)
             return self.stats_reader
 
     def configure(self):
@@ -291,10 +293,15 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def is_test_finished(self):
         """
+        Fetch locustrunner stats: min/max/median/avg response time, current RPS, fail ratio
+        """
+        self._locuststats = self._locustrunner.stats.total
+        """
         Fetch locustrunner status: 'ready', 'hatching', 'running', 'stopped' and returns status code
         """
         logger.debug("######## DEBUG: is_test_finished()? -> Fetching locust status")
         logger.debug("######## DEBUG: is_test_finished() -> self._locustrunner.state = {}".format(self._locustrunner.state))
+        self._state = self._locustrunner.state
         if self._locustrunner.state == 'stopped':
             self._user_count = 0
             return 0
@@ -337,25 +344,46 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
         ### DEBUG
         self.active_threads = self.owner._user_count
         #self.RPS = data['overall']['interval_real']['len']
-        logger.info('######## DEBUG: LocustInfoWidget on_aggregated_data(): %s' % str(stats))
+        logger.debug('######## DEBUG: LocustInfoWidget on_aggregated_data(): %s' % str(stats))
 
     def render(self, ConsoleScreen):
-        color_bg = ConsoleScreen.markup.BG_CYAN
+#        color_bg = ConsoleScreen.markup.BG_CYAN
         res = ''
-        banner = '########## LOCUST INFO: ##########'
-        space = ConsoleScreen.right_panel_width - len(banner) - 1
+        info_banner  = '########## LOCUST INFO ###########'
+        stats_banner = '########## LOCUST STATS ##########'
+        space = ConsoleScreen.right_panel_width - len(info_banner) - 1
         left_spaces = space / 2
         right_spaces = space / 2
 
         #dur_seconds = int(time.time()) - int(self.locust.start_time)
         #duration = str(datetime.timedelta(seconds=dur_seconds))
 
-        template = ConsoleScreen.markup.BG_CYAN + '#' * left_spaces + banner + ' '
-        template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
-        template += "##\tActive users : {}\n".format(self.active_threads)
+        info_template = ConsoleScreen.markup.GREEN + '#' * left_spaces + info_banner
+        info_template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
+        info_template += "\t## Target host: {}:{}\n".format(self.owner.host, self.owner.port)
+        info_template += "\t## Max users: {}\n".format(self.owner.num_clients)
+        info_template += "\t## Hatch rate: {}\n".format(self.owner.hatch_rate)
+#       info_ template += "\t## Locust file: {}\n".format(self.owner.locustfile)
+        info_template += "\t## Locust state: {}\n".format(self.owner._state)
+        info_template += "\t## Active users: {}\n".format(self.active_threads)
+#        info_template += "\n\n"
+#        info_template += ConsoleScreen.markup.BG_CYAN + '#' * (ConsoleScreen.right_panel_width - 1) + '\n\n\n\n\n' #+ ConsoleScreen.markup.RESET
 
+        res += "{}".format(info_template)
 
-        res += "%s" % template
+        stats_template = ConsoleScreen.markup.GREEN + '#' * left_spaces + stats_banner
+        stats_template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
+        stats_template += "\t## Current RPS: {0:.2f}\n".format(self.owner._locuststats.current_rps)
+        stats_template += "\t## Fail ratio (%): {0:.2f}\n".format(100 * self.owner._locuststats.fail_ratio)
+        stats_template += "\t## Min resp time (ms): {}\n".format(self.owner._locuststats.min_response_time)
+        stats_template += "\t## Max resp time (ms): {}\n".format(self.owner._locuststats.max_response_time)
+        stats_template += "\t## Average resp time (ms): {0:.2f}\n".format(self.owner._locuststats.avg_response_time)
+        stats_template += "\t## Median resp time (ms): {}\n".format(self.owner._locuststats.median_response_time)
+#        stats_template += "\n\n"
+        stats_template += ConsoleScreen.markup.GREEN + '#' * (ConsoleScreen.right_panel_width - 1) + ConsoleScreen.markup.RESET
+
+        res += "{}".format(stats_template)
+
         logger.debug('######## DEBUG: LocustInfoWidget render()')
 
         return res
