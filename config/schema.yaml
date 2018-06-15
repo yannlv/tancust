@@ -76,9 +76,9 @@ csv:
 #show_version:
 #  type: boolean
 #  default: false
-locustlogfile:
+locustlog_file:
   type: string
   default: none
-locustloglevel:
+locustlog_level:
   type: string
   default: 'INFO'

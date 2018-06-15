@@ -27,6 +27,8 @@ from  locust.runners import MasterLocustRunner, SlaveLocustRunner, LocalLocustRu
 import locust.events as events
 from locust.util.time import parse_timespan
 
+import tempfile
+
 #_internals = [Locust, HttpLocust]
 version = locust.__version__
 
@@ -40,6 +42,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def __init__(self, core, cfg, cfg_updater):
         AbstractPlugin.__init__(self, core, cfg, cfg_updater)
+        #self.core = core
         self._locustrunner = None
         self._locustclasses = None
         self._options = None
@@ -73,16 +76,17 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.show_task_ratio = False
         self.show_task_ratio_json = False
         self.show_version = True
-        self.locustlogfile = False
-        self.locustloglevel = 'INFO'
+        self.locustlog_file = None
+        self.locustlog_fd = None
+        self.locustlog_level = 'INFO'
         #self._stat_log = None
 
         # setup logging
         ll.setup_logging(self.loglevel, self.logfile)
-        if self.locustlogfile:
-            logger.debug("######## DEBUG: configuring Locust resplog")
-            ll.setup_resplogging(self.locustloglevel, self.locustlogfile)
 
+#    @property
+    def set_locustlog_file(self):
+        return tempfile.mkstemp('.log','locust_')
 
 
     def get_available_options(self):
@@ -104,7 +108,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def get_reader(self):
         if self.reader is None:
-            self.reader = LocustReader(self.locustlogfile)
+            self.reader = LocustReader(self.locustlog_file)
         return self.reader
 
     def get_stats_reader(self):
@@ -124,9 +128,14 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.logfile = self.get_option("logfile")
         self.loglevel = self.get_option("loglevel")
         self.csvfilebase = self.get_option("csv")
-        self.locustlogfile = self.get_option("locustlogfile")
-        self.locustloglevel = self.get_option("locustloglevel")
+        #self.locustlog_file = self.get_option("locustlog_file")
+        self.locustlog_fd, self.locustlog_file = self.set_locustlog_file()
+        self.locustlog_level = self.get_option("locustlog_level")
         self.show_version = True
+
+        if self.locustlog_file:
+            logger.debug("######## DEBUG: configuring Locust resplog")
+            ll.setup_resplogging(self.locustlog_level, self.locustlog_file)
 
     def get_options(self):
         options = {optname : self.__getattribute__(optname) for optname in self.get_available_options()}
@@ -187,10 +196,10 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
 
     def start_test(self):
-        # setup logging
-        ll.setup_logging(self.loglevel, self.logfile)
-        if self.locustlogfile:
-            ll.setup_resplogging(self.locustloglevel, self.locustlogfile)
+#        # setup logging
+#        ll.setup_logging(self.loglevel, self.logfile)
+#        if self.locustlog_file:
+#            ll.setup_resplogging(self.locustlog_level, self.locustlog_file)
         #logger = logging.getLogger(__name__)
 
         if self.show_version:
@@ -312,11 +321,11 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
     def end_test(self, retcode):
         if self.is_test_finished() < 0:
             logger.info("##### Locust plugin: Terminating Locust")
-            self.shutdown(code=0)
+            self.shutdown(retcode)
         else:
             logger.info("##### Locust plugin: Locust has been terminated")
-            self.shutdown(code=0)
-            sys.exit(code)
+            self.shutdown(retcode)
+            sys.exit(retcode)
         return retcode
 
 class Opts:
