@@ -46,7 +46,7 @@ def string_to_df(data):
     # DEBUG
     #logger.info("####### DATA : {}".format(data))
     #logger.info("####### STRINGIO(DATA) : {}".format(StringIO(data)))
-    csv_reader = pd.read_csv(StringIO(data), sep='\t', names=locust_log_columns, dtype=dtypes, iterator=True, chunksize=1, engine='python')
+    csv_reader = pd.read_csv(StringIO(data), sep='\t', names=locust_log_columns, dtype=dtypes, iterator=True, chunksize=2048, engine='python')
 
     # DEBUG
     #logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
@@ -62,7 +62,7 @@ def string_to_df(data):
 
         locust_dt = datetime.datetime.strptime(buff_ts, '%Y-%m-%d %H:%M:%S,%f')
         l['ts'] = time.mktime(locust_dt.timetuple()) + locust_dt.microsecond / 1e6
-        l['ts_str'] = l['ts'].astype(str)
+        #l['ts_str'] = l['ts'].astype(str)
 
         # DEBUG
         #chunk['test'] = chunk.http_code.astype(np.str) + chunk.http_method
@@ -104,8 +104,8 @@ def string_to_df(data):
 
 class LocustReader(object):
 
-#    def __init__(self, filename, cache_size=1024*1024*50):
-    def __init__(self, filename, cache_size=1024*1024*1):
+    def __init__(self, filename, cache_size=1024*1024*50):
+#    def __init__(self, filename, cache_size=1024*1024*1):
         self.buffer = ""
         self.stat_buffer = ""
         self.locust_log = open(filename, 'r')
@@ -141,7 +141,8 @@ class LocustReader(object):
                 #logger.info("######## DEBUG: self.stat_queue.put(string_to_df(ready_chunk)), ready_chunk =\n##### {}".format(string_to_df(ready_chunk)))
                 #logger.info("######## DEBUG: self.stat_queue.get() = {}".format(self.stat_queue.get()))
                 #self.stat_queue.put(string_to_df(ready_chunk))
-                logger.debug("######## DEBUG: self.stat_queue.qsize() = {}".format(self.stat_queue.qsize()))
+                logger.debug("######## DEBUG: _read_locust_log_chunk()/self.stat_queue.qsize() = {}".format(self.stat_queue.qsize()))
+                logger.debug("######## DEBUG: _read_locust_log_chunk()/len(ready_chunk) = {}".format(len(ready_chunk)))
                 return string_to_df(ready_chunk)
             else:
                 self.buffer += parts[0]
@@ -175,7 +176,7 @@ class LocustStatAggregator(object):
     def __iter__(self):
         for ts, chunk in self.source:
             stats = self.worker.aggregate(chunk)
-            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### stats= {}\n  ##### chunk= {}".format(stats, chunk))
+            #logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### stats= {}\n  ##### chunk= {}".format(stats, chunk))
             yield [{
                 'ts': ts,
                 'metrics': {
