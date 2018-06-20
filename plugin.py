@@ -42,7 +42,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def __init__(self, core, cfg, cfg_updater):
         AbstractPlugin.__init__(self, core, cfg, cfg_updater)
-        #self.core = core
+        self.core = core
         self._locustrunner = None
         self._locustclasses = None
         self._options = None
@@ -76,17 +76,20 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.show_task_ratio = False
         self.show_task_ratio_json = False
         self.show_version = True
-        self.locustlog_file = None
-        self.locustlog_fd = None
+        #self.locustlog_file = None
+        #self.locustlog_fd = None
         self.locustlog_level = 'INFO'
         #self._stat_log = None
+        self.cfg = cfg
 
         # setup logging
         ll.setup_logging(self.loglevel, self.logfile)
 
-#    @property
-    def set_locustlog_file(self):
-        return tempfile.mkstemp('.log','locust_')
+    @property
+#    def set_locustlog_file(self):
+    def locustlog_file(self):
+        logger.info("######## DEBUG: self.core.artifacts_dir = {}".format(self.core.artifacts_dir))
+        return "{}/locust.log".format(self.core.artifacts_dir)
 
 
     def get_available_options(self):
@@ -129,9 +132,10 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.loglevel = self.get_option("loglevel")
         self.csvfilebase = self.get_option("csv")
         #self.locustlog_file = self.get_option("locustlog_file")
-        self.locustlog_fd, self.locustlog_file = self.set_locustlog_file()
+        #self.locustlog_file = self.set_locustlog_file()
         self.locustlog_level = self.get_option("locustlog_level")
         self.show_version = True
+
 
         if self.locustlog_file:
             logger.debug("######## DEBUG: configuring Locust resplog")
