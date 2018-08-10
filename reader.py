@@ -86,7 +86,7 @@ def string_to_df(data):
         l['proto_code'] = l.http_code.astype(np.int64)
         l['interval_event'] = 1
         l['interval_real'] = 1
-        l['receive_time'] = l.resp_time
+        l['receive_time'] = l.resp_time * 1000
         l['connect_time'] = 0
         l['send_time'] = 0
 
@@ -113,7 +113,7 @@ class LocustReader(object):
         self.closed = False
         self.cache_size = cache_size
         self.stat_queue = q.Queue()
-        self.stats_reader = LocustStatAggregator(TimeChopper(self._read_stat_queue(), 1))
+        self.stats_reader = LocustStatAggregator(TimeChopper(self._read_stat_queue(), 2))
 
     def _read_stat_queue(self):
         while not self.closed:
@@ -170,20 +170,43 @@ class LocustReader(object):
 
 class LocustStatAggregator(object):
     def __init__(self, source):
-        self.worker = agg.Worker({"ts":{}}, False)
+        #self.worker = agg.Worker({"ts":{}}, False)
+        self.worker = agg.Worker({"resp_time" : ["mean"]}, False)
+        #self.worker = agg.Worker({"tag" : {}}, False)
+        #self.worker = agg.Worker({"allThreads": ["max"]}, False)
+        #self.worker = agg.Worker({}, False)
         self.source = source
+        self.groupby = 'tag'
+
+#    def __iter__(self):
+#        for ts, chunk in self.source:
+#            by_tag = list(chunk.groupby([self.groupby]))
+#            start_time = time.time()
+#            result = {
+#                "ts": ts,
+#                "tagged":
+#                {tag: self.worker.aggregate(data)
+#                 for tag, data in by_tag},
+#                "overall": self.worker.aggregate(chunk),
+#            }
+#
 
     def __iter__(self):
         for ts, chunk in self.source:
-            stats = self.worker.aggregate(chunk)
-            #logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### stats= {}\n  ##### chunk= {}".format(stats, chunk))
-            yield [{
+            by_tag = list(chunk.groupby([self.groupby]))
+#            stats = self.worker.aggregate(chunk)
+#            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
+            result = [{
                 'ts': ts,
                 'metrics': {
-                    'instances': 15,#stats['ts']['max'],
-                    'reqps': 0
+                    'instances': 75,#stats['ts']['max'],
+                    'reqps': 25,
+                    'tagged': {tag: self.worker.aggregate(data) for tag, data in by_tag},
+                    'overall': self.worker.aggregate(chunk)
                 }
             }]
+            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### result= {}\n".format(result))
+            yield result
 
     def close(self):
         pass
