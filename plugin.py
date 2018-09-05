@@ -308,7 +308,9 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         """
         Fetch locustrunner stats: min/max/median/avg response time, current RPS, fail ratio
         """
-        self._locuststats = self._locustrunner.stats.total
+        if self._locustrunner:
+            self._locuststats = self._locustrunner.stats.total
+
         """
         Fetch locustrunner status: 'ready', 'hatching', 'running', 'stopped' and returns status code
         """
