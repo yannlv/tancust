@@ -55,43 +55,43 @@ def string_to_df(data):
     #locust_log_dt_obj = datetime.datetime.strptime(chunk.send_ts[0].replace('[','').replace(']',''), '%Y-%m-%d %H:%M:%S,%f')
 
     lines = []
-    for l in csv_reader:
+    for line in csv_reader:
 
-        buff_ts = l.send_ts.iloc[0]
+        buff_ts = line.send_ts.iloc[0]
         buff_ts = buff_ts.replace('[','').replace(']','')
 
         locust_dt = datetime.datetime.strptime(buff_ts, '%Y-%m-%d %H:%M:%S,%f')
-        l['ts'] = time.mktime(locust_dt.timetuple()) + locust_dt.microsecond / 1e6
-        #l['ts_str'] = l['ts'].astype(str)
+        line['ts'] = time.mktime(locust_dt.timetuple()) + locust_dt.microsecond / 1e6
+        #line['ts_str'] = line['ts'].astype(str)
 
         # DEBUG
         #chunk['test'] = chunk.http_code.astype(np.str) + chunk.http_method
         #logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
         ##chunk['receive_ts'] = chunk.send_ts + chunk.interval_real / 1e6
-        l['receive_sec'] = l.ts.astype(np.int64)
+        line['receive_sec'] = line.ts.astype(np.int64)
 
         # split host_loglevel_logger in (host, loglevel, logger) : 'localhost/INFO/resplog' -> ('localhost','INFO','resplog')
-        [l['host'], l['loglevel'], l['logger']] = l.host_loglevel_logger.iloc[0].split('/')
+        [line['host'], line['loglevel'], line['logger']] = line.host_loglevel_logger.iloc[0].split('/')
 
-        #l['tag'] = l.tag.str.rsplit('#', 1, expand=True)[0]
-        l.set_index(['receive_sec'], inplace=True)
+        #line['tag'] = line.tag.str.rsplit('#', 1, expand=True)[0]
+        line.set_index(['receive_sec'], inplace=True)
 
         # DEBUG / workaround for 'size_in' + misc missing keys
-        l['time'] = l.ts
-        l['size_in'] = l.content_size.astype(np.int64)
-        l['size_out'] = 0
-        l['latency'] = 0
-        l['net_code'] = 0
-        l['proto_code'] = l.http_code.astype(np.int64)
-        l['interval_event'] = 1
-        l['interval_real'] = 1
-        l['receive_time'] = l.resp_time * 1000
-        l['connect_time'] = 0
-        l['send_time'] = 0
+        line['time'] = line.ts
+        line['size_in'] = line.content_size.astype(np.int64)
+        line['size_out'] = 0
+        line['latency'] = 0
+        line['net_code'] = 0
+        line['proto_code'] = line.http_code.astype(np.int64)
+        line['interval_event'] = 1
+        line['interval_real'] = 1
+        line['receive_time'] = line.resp_time * 1000
+        line['connect_time'] = 0
+        line['send_time'] = 0
 
 
-        lines.append(l)
+        lines.append(line)
 
     # DEBUG
     #logger.debug("Chunk decode time: %.2fms", (time.time() - start_time) * 1000)
@@ -194,7 +194,7 @@ class LocustStatAggregator(object):
     def __iter__(self):
         for ts, chunk in self.source:
             by_tag = list(chunk.groupby([self.groupby]))
-#            stats = self.worker.aggregate(chunk)
+            stats = self.worker.aggregate(chunk)
 #            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
             result = [{
                 'ts': ts,
