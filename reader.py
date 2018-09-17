@@ -27,7 +27,7 @@ dtypes = {
     'host_loglevel_logger': np.str,
     'tag': np.str,
     'http_method': np.str,
-    #)'http_code': np.uint16,
+    #'http_code': np.uint16,
     'http_code': np.str,
     'url': np.str,
     'resp_time': np.float32,
@@ -40,7 +40,7 @@ dtypes = {
 }
 
 
-def string_to_df(data):
+def string_to_df(data, active_threads):
     start_time = time.time()
 
     # DEBUG
@@ -51,7 +51,7 @@ def string_to_df(data):
     # DEBUG
     #logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
-    # format locust log date to timestamp : '[2017-12-28 14:46:34,327]' -> 1514468794.327
+    # Format locust log date to timestamp : '[2017-12-28 14:46:34,327]' -> 1514468794.327
     #locust_log_dt_obj = datetime.datetime.strptime(chunk.send_ts[0].replace('[','').replace(']',''), '%Y-%m-%d %H:%M:%S,%f')
 
     lines = []
@@ -62,7 +62,6 @@ def string_to_df(data):
 
         locust_dt = datetime.datetime.strptime(buff_ts, '%Y-%m-%d %H:%M:%S,%f')
         line['ts'] = time.mktime(locust_dt.timetuple()) + locust_dt.microsecond / 1e6
-        #line['ts_str'] = line['ts'].astype(str)
 
         # DEBUG
         #chunk['test'] = chunk.http_code.astype(np.str) + chunk.http_method
@@ -77,7 +76,7 @@ def string_to_df(data):
         #line['tag'] = line.tag.str.rsplit('#', 1, expand=True)[0]
         line.set_index(['receive_sec'], inplace=True)
 
-        # DEBUG / workaround for 'size_in' + misc missing keys
+        # Adding 'size_in' + misc missing keys
         line['time'] = line.ts
         line['size_in'] = line.content_size.astype(np.int64)
         line['size_out'] = 0
@@ -89,23 +88,23 @@ def string_to_df(data):
         line['receive_time'] = line.resp_time * 1000
         line['connect_time'] = 0
         line['send_time'] = 0
+        line['active_threads'] = active_threads
 
 
         lines.append(line)
 
+    chunk = pd.concat(lines)
+
     # DEBUG
     #logger.debug("Chunk decode time: %.2fms", (time.time() - start_time) * 1000)
-    #logger.info("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
-
-    chunk = pd.concat(lines)
+    #logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
     return chunk
 
 
 class LocustReader(object):
 
-    def __init__(self, filename, cache_size=1024*1024*50):
-#    def __init__(self, filename, cache_size=1024*1024*1):
+    def __init__(self, owner, filename, cache_size=1024*1024*50):
         self.buffer = ""
         self.stat_buffer = ""
         self.locust_log = open(filename, 'r')
@@ -114,6 +113,7 @@ class LocustReader(object):
         self.cache_size = cache_size
         self.stat_queue = q.Queue()
         self.stats_reader = LocustStatAggregator(TimeChopper(self._read_stat_queue(), 2))
+        self.locust = owner
 
     def _read_stat_queue(self):
         while not self.closed:
@@ -125,7 +125,6 @@ class LocustReader(object):
                     si = self.stat_queue.get_nowait()
                     if si is not None:
                         yield si
-                #except q.Empty:
                 except q.Empty:
                     logger.debug("######## DEBUG: _read_stat_queue() -> queue empty")
                     break
@@ -137,13 +136,20 @@ class LocustReader(object):
             if len(parts) > 1:
                 ready_chunk = self.buffer + parts[0] + '\n'
                 self.buffer = parts[1]
-                self.stat_queue.put(string_to_df(ready_chunk))
                 #logger.info("######## DEBUG: self.stat_queue.put(string_to_df(ready_chunk)), ready_chunk =\n##### {}".format(string_to_df(ready_chunk)))
                 #logger.info("######## DEBUG: self.stat_queue.get() = {}".format(self.stat_queue.get()))
                 #self.stat_queue.put(string_to_df(ready_chunk))
                 logger.debug("######## DEBUG: _read_locust_log_chunk()/self.stat_queue.qsize() = {}".format(self.stat_queue.qsize()))
                 logger.debug("######## DEBUG: _read_locust_log_chunk()/len(ready_chunk) = {}".format(len(ready_chunk)))
-                return string_to_df(ready_chunk)
+                if self.locust._locustrunner:
+                    logger.debug("######## DEBUG: _read_locust_log_chunk()/self.locust._locustrunner.user_count = {}".format(self.locust._locustrunner.user_count))
+                    self.stat_queue.put(string_to_df(ready_chunk, self.locust._locustrunner.user_count))
+                    return string_to_df(ready_chunk, self.locust._locustrunner.user_count)
+                else:
+                    logger.debug("######## DEBUG: _read_locust_log_chunk()/self.locust._locustrunner.user_count : NO RUNNER YET")
+                    self.stat_queue.put(string_to_df(ready_chunk, 0))
+                    return string_to_df(ready_chunk, 0)
+
             else:
                 self.buffer += parts[0]
         else:
@@ -162,7 +168,6 @@ class LocustReader(object):
         if self.buffer:
             yield string_to_df(self.buffer)
 
-        #self.locust_log.close()
 
 
     def close(self):
@@ -170,39 +175,24 @@ class LocustReader(object):
 
 class LocustStatAggregator(object):
     def __init__(self, source):
-        #self.worker = agg.Worker({"ts":{}}, False)
-        self.worker = agg.Worker({"resp_time" : ["mean"]}, False)
-        #self.worker = agg.Worker({"tag" : {}}, False)
-        #self.worker = agg.Worker({"allThreads": ["max"]}, False)
-        #self.worker = agg.Worker({}, False)
+        self.worker_resptime = agg.Worker({"resp_time" : ["mean"]}, False)
+        self.worker_instances_rps = agg.Worker({"active_threads" : ["max"]}, False)
         self.source = source
         self.groupby = 'tag'
 
-#    def __iter__(self):
-#        for ts, chunk in self.source:
-#            by_tag = list(chunk.groupby([self.groupby]))
-#            start_time = time.time()
-#            result = {
-#                "ts": ts,
-#                "tagged":
-#                {tag: self.worker.aggregate(data)
-#                 for tag, data in by_tag},
-#                "overall": self.worker.aggregate(chunk),
-#            }
-#
 
     def __iter__(self):
         for ts, chunk in self.source:
             by_tag = list(chunk.groupby([self.groupby]))
-            stats = self.worker.aggregate(chunk)
-#            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
+            stats = self.worker_resptime.aggregate(chunk)
+            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
             result = [{
-                'ts': ts,
-                'metrics': {
-                    'instances': 75,#stats['ts']['max'],
-                    'reqps': 25,
-                    'tagged': {tag: self.worker.aggregate(data) for tag, data in by_tag},
-                    'overall': self.worker.aggregate(chunk)
+                "ts": ts,
+                "metrics": {
+                    "run": self.worker_instances_rps.aggregate(chunk),
+                    "reqps": 0,
+                    "tagged": {tag: self.worker_resptime.aggregate(data) for tag, data in by_tag},
+                    "overall": self.worker_resptime.aggregate(chunk)
                 }
             }]
             logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### result= {}\n".format(result))
@@ -213,70 +203,3 @@ class LocustStatAggregator(object):
 
 
 
-#class LocustStatsReader(object):
-#   def __init__(self, filename, locust_info, cache_size=1024 * 1024 * 50):
-#       self.locust_info = locust_info
-#       self.stat_buffer = ""
-#       self.stat_filename = filename
-#       self.closed = False
-#       self.start_time = 0
-#       self.cache_size = cache_size
-#
-#    def _decode_stat_data(self, chunk):
-#        """
-#        Return all items found in this chunk
-#        """
-#        for date_str, statistics in chunk.iteritems():
-#            date_obj = datetime.datetime.strptime(
-#                date_str.split(".")[0], '%Y-%m-%d %H:%M:%S')
-#            chunk_date = int(time.mktime(date_obj.timetuple()))
-#            instances = 0
-#            for benchmark_name, benchmark in statistics.iteritems():
-#                if not benchmark_name.startswith("benchmark_io"):
-#                    continue
-#                for method, meth_obj in benchmark.iteritems():
-#                    if "mmtasks" in meth_obj:
-#                        instances += meth_obj["mmtasks"][2]
-#
-#            offset = chunk_date - 1 - self.start_time
-#            reqps = 0
-#            #if offset >= 0 and offset < len(self.locust_info.steps):  #DEBUG
-#            #    reqps = self.locust_info.steps[offset][0]             #DEBUG
-#            yield {
-#                'ts': chunk_date - 1,
-#                'metrics': {
-#                    'instances': instances,
-#                    'reqps': reqps
-#                }
-#            }
-#
-#    def _read_stat_data(self, stat_file):
-#        chunk = stat_file.read(self.cache_size)
-#        if chunk:
-#            self.stat_buffer += chunk
-#            parts = self.stat_buffer.rsplit('\n},', 1)
-#            if len(parts) > 1:
-#                ready_chunk = parts[0]
-#                self.stat_buffer = parts[1]
-#                chunks = [
-#                    json.loads('{%s}}' % s) for s in ready_chunk.split('\n},')
-#                ]
-#                return list(
-#                    itt.chain(
-#                        *(self._decode_stat_data(chunk) for chunk in chunks)))
-#        else:
-#            self.stat_buffer += stat_file.readline()
-#
-#    def __iter__(self):
-#        """
-#        Union buffer and chunk, split using '\n},',
-#        return splitted parts
-#        """
-#        self.start_time = int(time.time())
-#        with open(self.stat_filename, 'r') as stat_file:
-#            while not self.closed:
-#                yield self._read_stat_data(stat_file)
-#            yield self._read_stat_data(stat_file)
-#
-#    def close(self):
-#        self.closed = True

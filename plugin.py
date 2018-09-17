@@ -111,7 +111,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def get_reader(self):
         if self.reader is None:
-            self.reader = LocustReader(self.locustlog_file)
+            self.reader = LocustReader(self, self.locustlog_file)
         return self.reader
 
     def get_stats_reader(self):
@@ -163,7 +163,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             widget = LocustInfoWidget(self)
             console.add_info_widget(widget)
             logger.debug("######## DEBUG: locust widget added to console")
-            self.core.job.aggregator.add_result_listener(widget)
+#            self.core.job.aggregator.add_result_listener(widget)
             logger.debug("######## DEBUG: add result listener")
 
 
@@ -353,13 +353,14 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 
     def get_index(self):
         logger.debug('######## DEBUG: LocustInfoWidget get_index()')
-        return 100
+        return 20
 
     def on_aggregated_data(self, data, stats):
         ### DEBUG
         self.active_threads = self.owner._user_count
-        #self.RPS = data['overall']['interval_real']['len']
+        self.RPS = self.owner._locuststats.current_rps  # data['overall']['interval_real']['len']
         logger.debug('######## DEBUG: LocustInfoWidget on_aggregated_data(): %s' % str(stats))
+        logger.debug('######## DEBUG: LocustInfoWidget on_aggregated_data() / self.RPS = %s' % str(self.RPS))
 
     def render(self, ConsoleScreen):
 #        color_bg = ConsoleScreen.markup.BG_CYAN
