@@ -22,6 +22,8 @@ import locust
 import gevent
 import sys
 import logging
+import time
+
 from locust.stats import stats_printer, print_percentile_stats, print_error_report, print_stats
 from  locust.runners import MasterLocustRunner, SlaveLocustRunner, LocalLocustRunner
 import locust.events as events
@@ -237,12 +239,14 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                         self._locustrunner.quit()
                     gevent.spawn_later(self.run_time, timelimit_stop)
 
+            # locust run : web monitor
             if not self.no_web and not self.slave and self._locustrunner is None:
                 # spawn web greenlet
                 logger.info("##### Locust plugin: Starting web monitor at %s:%s" % (self.web_host or "*", self.port))
                 main_greenlet = gevent.spawn(web.start, self._locustclasses, self._options)
 
 
+            # locust run : standalone
             if not self.master and not self.slave and self._locustrunner is None:
                 logger.info("##### Locust plugin: LocalLocustRunner about to be launched")
                 self._locustrunner = LocalLocustRunner(self._locustclasses, self._options)
@@ -255,10 +259,12 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     logger.info("##### Locust plugin: spawn_run_time_limit_greenlet()")
                     spawn_run_time_limit_greenlet()
                     logger.info("##### Locust plugin: spawn_run_time_limit_greenlet() passed")
+
+            # locust run : master/slave mode (master here)
             elif self.master and self._locustrunner is None:
                 self._locustrunner = MasterLocustRunner(self._locustclasses, self._options)
                 if self.no_web:
-                    while len(self._locustrunner.clients.ready)<self.expect_slaves:
+                    while len(self._locustrunner.clients.ready) < self.expect_slaves:
                         logger.info("##### Locust plugin: Waiting for slaves to be ready, %s of %s connected",
                                      len(self._locustrunner.clients.ready), self.expect_slaves)
                         time.sleep(1)
@@ -267,6 +273,8 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     main_greenlet = lr.locust_runner.greenlet
                     if self.run_time:
                         spawn_run_time_limit_greenlet()
+
+            # locust run : master/slave mode (slave here) #TODO
             elif self.slave and self._locustrunner is None:
                 if self.run_time:
                     logger.error("##### Locust plugin: --run-time should be specified on the master node, and not on slave nodes")
@@ -293,15 +301,17 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         """
         Shut down locust by firing quitting event, printing stats and exiting
         """
-        logger.info("##### Locust plugin: Shutting down (exit code %s), bye." % code)
 
+        logger.info("##### Locust plugin: Waiting 120 sec to aggregate latest data within Tank")
         events.quitting.fire()
+
+        self._locustrunner.quit()
+        time.sleep(120)
         print_stats(self._locustrunner.request_stats)
         print_percentile_stats(self._locustrunner.request_stats)
         print_error_report()
-
-        self._locustrunner.stop
         self.reader.close()
+        logger.info("##### Locust plugin: Shutting down (exit code %s), bye." % code)
         sys.exit(code)
 
     def is_test_finished(self):
@@ -329,7 +339,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             logger.info("##### Locust plugin: Terminating Locust")
             self.shutdown(retcode)
         else:
-            logger.info("##### Locust plugin: Locust has been terminated")
+            logger.info("##### Locust plugin: Locust has been terminated already")
             self.shutdown(retcode)
             sys.exit(retcode)
         return retcode
