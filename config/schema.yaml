@@ -10,24 +10,27 @@ port:
 locustfile:
   type: string
   default: 'locustfile'
-#master:
-#  type: boolean
-#  default: false
+master:
+  type: boolean
+  default: false
 #slave:
 #  type: boolean
 #  default: false
-#master_host:
-#  type: string
-#  default: '127.0.0.1'
-#master_port:
-#  type: integer
-#  default: 5557
-#master_bind_host:
-#  type: string
-#  default: '*'
-#master_bind_port:
-#  type: integer
-#  default: 5557
+master_host:
+  type: string
+  default: '127.0.0.1'
+master_port:
+  type: integer
+  default: 5557
+master_bind_host:
+  type: string
+  default: '*'
+master_bind_port:
+  type: integer
+  default: 5557
+expect_slaves:
+  type: integer
+  default: 0
 #no_web:
 #  type: boolean
 #  default: true
@@ -49,15 +52,12 @@ loglevel:
 logfile:
   type: string
   default: none
-csv:
+csvfilebase:
   type: string
   default: none
-#csvfilebase:
-#  type: string
-#  default: none
-#csvappend:
-#  type: boolean
-#  default: true
+csvappend:
+  type: boolean
+  default: true
 #print_stats:
 #  type: boolean
 #  default: true

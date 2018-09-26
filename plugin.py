@@ -24,7 +24,7 @@ import sys
 import logging
 import time
 
-from locust.stats import stats_printer, print_percentile_stats, print_error_report, print_stats
+from locust.stats import stats_printer, stats_writer, write_stat_csvs, print_percentile_stats, print_error_report, print_stats
 from  locust.runners import MasterLocustRunner, SlaveLocustRunner, LocalLocustRunner
 import locust.events as events
 from locust.util.time import parse_timespan
@@ -63,6 +63,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.master_port = 5557
         self.master_bind_host = "*"
         self.master_bind_port = 5557
+        self.expect_slaves = 0
         self.no_web = True
         self.num_clients = int(1)
         self.hatch_rate = float(1)
@@ -98,7 +99,9 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         return [
             "host", "port", "locustfile",
             "num_clients", "hatch_rate", "run_time", #"num_requests",
-            "logfile", "loglevel", "csvfilebase"
+            "logfile", "loglevel", "csvfilebase",
+            "master", "master_bind_host", "master_bind_port", "expect_slaves",
+            "master_host", "master_port"
         ]
 
 
@@ -132,11 +135,17 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.run_time = self.get_option("run_time")
         self.logfile = self.get_option("logfile")
         self.loglevel = self.get_option("loglevel")
-        self.csvfilebase = self.get_option("csv")
+        self.csvfilebase = self.get_option("csvfilebase")
         #self.locustlog_file = self.get_option("locustlog_file")
         #self.locustlog_file = self.set_locustlog_file()
         self.locustlog_level = self.get_option("locustlog_level")
         self.show_version = True
+        self.master = self.get_option("master")
+        self.master_bind_host = self.get_option("master_bind_host")
+        self.master_bind_port = self.get_option("master_bind_port")
+        self.expect_slaves = self.get_option("expect_slaves")
+        self.master_host = self.get_option("master_host")
+        self.master_port = self.get_option("master_port")
 
 
         if self.locustlog_file:
@@ -223,6 +232,9 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             logger.info("##### Locust plugin: Starting Locust %s" % version)
 
             # run the locust
+            if self.csvfilebase:
+                gevent.spawn(stats_writer, self.csvfilebase)
+
             if self.run_time:
                 if not self.no_web:
                     logger.error("##### Locust plugin: The --run-time argument can only be used together with --no-web")
@@ -239,14 +251,18 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                         self._locustrunner.quit()
                     gevent.spawn_later(self.run_time, timelimit_stop)
 
-            # locust run : web monitor
+
+
+
+
+            # locust runner : web monitor
             if not self.no_web and not self.slave and self._locustrunner is None:
                 # spawn web greenlet
                 logger.info("##### Locust plugin: Starting web monitor at %s:%s" % (self.web_host or "*", self.port))
                 main_greenlet = gevent.spawn(web.start, self._locustclasses, self._options)
 
 
-            # locust run : standalone
+            # locust runner : standalone
             if not self.master and not self.slave and self._locustrunner is None:
                 logger.info("##### Locust plugin: LocalLocustRunner about to be launched")
                 self._locustrunner = LocalLocustRunner(self._locustclasses, self._options)
@@ -260,7 +276,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     spawn_run_time_limit_greenlet()
                     logger.info("##### Locust plugin: spawn_run_time_limit_greenlet() passed")
 
-            # locust run : master/slave mode (master here)
+            # locust runner : master/slave mode (master here)
             elif self.master and self._locustrunner is None:
                 self._locustrunner = MasterLocustRunner(self._locustclasses, self._options)
                 if self.no_web:
@@ -270,11 +286,11 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                         time.sleep(1)
 
                     self._locustrunner.start_hatching(self.num_clients, self.hatch_rate)
-                    main_greenlet = lr.locust_runner.greenlet
+                    main_greenlet = self._locustrunner.greenlet
                     if self.run_time:
                         spawn_run_time_limit_greenlet()
 
-            # locust run : master/slave mode (slave here) #TODO
+            # locust runner : master/slave mode (slave here)
             elif self.slave and self._locustrunner is None:
                 if self.run_time:
                     logger.error("##### Locust plugin: --run-time should be specified on the master node, and not on slave nodes")
@@ -303,10 +319,13 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         """
 
         logger.info("##### Locust plugin: Waiting 120 sec to aggregate latest data within Tank")
-        events.quitting.fire()
 
-        self._locustrunner.quit()
-        time.sleep(120)
+        if self._locustrunner is not None:
+            #if self.csvfilebase:
+            #    write_stat_csvs(self.csvfilebase)
+            self._locustrunner.quit()
+        events.quitting.fire(reverse=True)
+        time.sleep(10)
         print_stats(self._locustrunner.request_stats)
         print_percentile_stats(self._locustrunner.request_stats)
         print_error_report()
