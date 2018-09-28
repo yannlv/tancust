@@ -24,7 +24,7 @@ import sys
 import logging
 import time
 
-from locust.stats import stats_printer, stats_writer, write_stat_csvs, print_percentile_stats, print_error_report, print_stats
+from locust.stats import stats_printer, stats_writer, print_percentile_stats, print_error_report, print_stats #,write_stat_csvs
 from  locust.runners import MasterLocustRunner, SlaveLocustRunner, LocalLocustRunner
 import locust.events as events
 from locust.util.time import parse_timespan
@@ -228,12 +228,24 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             self.shutdown(0)
             gevent.signal(signal.SIGTERM, sig_term_handler)
 
+        def spawn_local_slaves(count):
+            """
+            Spawn local locust slaves : data aggregation will NOT work with remote slaves
+            """
+            try:
+                slaves = [SlaveLocustRunner(self._locustclasses, self._options) for _ in range(count)]
+                logger.info("##### Locust plugin: Started {} new locust slave(s)".format(len(slaves)))
+                time.sleep(1)
+            except socket.error as e:
+                logger.error("##### Locust plugin: Failed to connect to the Locust master: %s", e)
+                sys.exit(-1)
+
         try:
             logger.info("##### Locust plugin: Starting Locust %s" % version)
 
             # run the locust
-            if self.csvfilebase:
-                gevent.spawn(stats_writer, self.csvfilebase)
+            #if self.csvfilebase:
+            #    gevent.spawn(stats_writer, self.csvfilebase)
 
             if self.run_time:
                 if not self.no_web:
@@ -280,6 +292,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             elif self.master and self._locustrunner is None:
                 self._locustrunner = MasterLocustRunner(self._locustclasses, self._options)
                 if self.no_web:
+                    spawn_local_slaves(self.expect_slaves)
                     while len(self._locustrunner.clients.ready) < self.expect_slaves:
                         logger.info("##### Locust plugin: Waiting for slaves to be ready, %s of %s connected",
                                      len(self._locustrunner.clients.ready), self.expect_slaves)
@@ -302,7 +315,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     logger.error("##### Locust plugin: Failed to connect to the Locust master: %s", e)
                     sys.exit(-1)
             return self._locustrunner
-
 
             self._locustrunner.greenlet.join()
             code = 0
