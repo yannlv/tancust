@@ -84,6 +84,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.locustlog_level = 'INFO'
         #self._stat_log = None
         self.cfg = cfg
+        self.max_data_delay = 10
 
         # setup logging
         ll.setup_logging(self.loglevel, self.logfile)
@@ -99,7 +100,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         return [
             "host", "port", "locustfile",
             "num_clients", "hatch_rate", "run_time", #"num_requests",
-            "logfile", "loglevel", "csvfilebase",
+            "logfile", "loglevel", "csvfilebase", "max_data_delay",
             "master", "master_bind_host", "master_bind_port", "expect_slaves",
             "master_host", "master_port"
         ]
@@ -136,6 +137,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.logfile = self.get_option("logfile")
         self.loglevel = self.get_option("loglevel")
         self.csvfilebase = self.get_option("csvfilebase")
+        self.max_data_delay = self.get_option("max_data_delay")
         #self.locustlog_file = self.get_option("locustlog_file")
         #self.locustlog_file = self.set_locustlog_file()
         self.locustlog_level = self.get_option("locustlog_level")
@@ -330,14 +332,14 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         Shut down locust by firing quitting event, printing stats and exiting
         """
 
-        logger.info("##### Locust plugin: Waiting 120 sec to aggregate latest data within Tank")
+        logger.info("##### Locust plugin: Waiting {} sec to aggregate latest data within Tank".format(self.max_data_delay))
 
         if self._locustrunner is not None:
             #if self.csvfilebase:
             #    write_stat_csvs(self.csvfilebase)
             self._locustrunner.quit()
         events.quitting.fire(reverse=True)
-        time.sleep(10)
+        time.sleep(self.max_data_delay)
         print_stats(self._locustrunner.request_stats)
         print_percentile_stats(self._locustrunner.request_stats)
         print_error_report()
