@@ -21,6 +21,8 @@ import locust
 
 import gevent
 import sys
+import subprocess
+import socket
 import logging
 import time
 
@@ -232,14 +234,31 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
         def spawn_local_slaves(count):
             """
-            Spawn local locust slaves : data aggregation will NOT work with remote slaves
+            Spawn *local* locust slaves : data aggregation will NOT work with *remote* slaves
             """
             try:
-                slaves = [SlaveLocustRunner(self._locustclasses, self._options) for _ in range(count)]
-                logger.info("##### Locust plugin: Started {} new locust slave(s)".format(len(slaves)))
+                #slaves = [SlaveLocustRunner(self._locustclasses, self._options) for _ in range(count)]
+                args = ['locust']
+                args.append('--locustfile={}'.format(str(self.locustfile)))
+                args.append('--slave')
+                args.append('--master-host={}'.format(self.master_host))
+                args.append('--master-port={}'.format(self.master_port))
+                args.append('--resplogfile={}/locust.log'.format(self.core.artifacts_dir))
+                args.append('2>&1')
+                args.append('> {}/locust-slaves.log'.format(self.core.artifacts_dir))
+                args.append('&')
+                logger.info("##### Locust plugin: slave args = {}".format(args))
+
+                slaves = [subprocess.call(' '.join(args), shell=True) for _ in range(count)]
                 time.sleep(1)
+
+                logger.info("##### Locust plugin: Started {} new locust slave(s)".format(len(slaves)))
+                logger.info("##### Locust plugin: locust slave(s) PID = {}".format(slaves))
             except socket.error as e:
                 logger.error("##### Locust plugin: Failed to connect to the Locust master: %s", e)
+                sys.exit(-1)
+            except Exception as e:
+                logger.error("##### Locust plugin: Failed to spawn locust slaves: %s", e)
                 sys.exit(-1)
 
         try:
@@ -293,6 +312,8 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             # locust runner : master/slave mode (master here)
             elif self.master and self._locustrunner is None:
                 self._locustrunner = MasterLocustRunner(self._locustclasses, self._options)
+                logger.info("##### Locust plugin: MasterLocustRunner started")
+                time.sleep(1)
                 if self.no_web:
                     spawn_local_slaves(self.expect_slaves)
                     while len(self._locustrunner.clients.ready) < self.expect_slaves:
@@ -396,7 +417,7 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 
     def get_index(self):
         logger.debug('######## DEBUG: LocustInfoWidget get_index()')
-        return 20
+        return 0
 
     def on_aggregated_data(self, data, stats):
         ### DEBUG
@@ -407,9 +428,9 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 
     def render(self, ConsoleScreen):
 #        color_bg = ConsoleScreen.markup.BG_CYAN
-        res = ''
-        info_banner  = '########## LOCUST INFO ###########'
-        stats_banner = '########## LOCUST STATS ##########'
+        res = ""
+        info_banner  = "########## LOCUST INFO ###########"
+        stats_banner = "########## LOCUST STATS ##########"
         space = ConsoleScreen.right_panel_width - len(info_banner) - 1
         left_spaces = space / 2
         right_spaces = space / 2
@@ -418,20 +439,20 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
         #duration = str(datetime.timedelta(seconds=dur_seconds))
 
         info_template = ConsoleScreen.markup.GREEN + '#' * left_spaces + info_banner
-        info_template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
+        info_template += "#" * right_spaces + ConsoleScreen.markup.RESET + "\n"
         info_template += "\t## Target host: {}:{}\n".format(self.owner.host, self.owner.port)
         info_template += "\t## Max users: {}\n".format(self.owner.num_clients)
         info_template += "\t## Hatch rate: {}\n".format(self.owner.hatch_rate)
 #       info_ template += "\t## Locust file: {}\n".format(self.owner.locustfile)
         info_template += "\t## Locust state: {}\n".format(self.owner._state)
-        info_template += "\t## Active users: {}\n".format(self.active_threads)
+        info_template += "\t## Active users: {}\n".format(self.owner._user_count)
 #        info_template += "\n\n"
 #        info_template += ConsoleScreen.markup.BG_CYAN + '#' * (ConsoleScreen.right_panel_width - 1) + '\n\n\n\n\n' #+ ConsoleScreen.markup.RESET
 
         res += "{}".format(info_template)
 
-        stats_template = ConsoleScreen.markup.GREEN + '#' * left_spaces + stats_banner
-        stats_template += '#' * right_spaces + ConsoleScreen.markup.RESET + "\n"
+        stats_template = ConsoleScreen.markup.GREEN + "#" * left_spaces + stats_banner
+        stats_template += "#" * right_spaces + ConsoleScreen.markup.RESET + "\n"
         stats_template += "\t## Current RPS: {0:.2f}\n".format(self.owner._locuststats.current_rps)
         stats_template += "\t## Fail ratio (%): {0:.2f}\n".format(100 * self.owner._locuststats.fail_ratio)
         stats_template += "\t## Min resp time (ms): {}\n".format(self.owner._locuststats.min_response_time)
