@@ -185,7 +185,8 @@ class LocustStatAggregator(object):
         for ts, chunk in self.source:
             by_tag = list(chunk.groupby([self.groupby]))
             stats = self.worker_resptime.aggregate(chunk)
-            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
+            # DEBUG : print stats + data chunk
+			#logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
             result = [{
                 "ts": ts,
                 "metrics": {
@@ -195,7 +196,8 @@ class LocustStatAggregator(object):
                     "overall": self.worker_resptime.aggregate(chunk)
                 }
             }]
-            logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### result= {}\n".format(result))
+			# DEBUG
+			#logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### result= {}\n".format(result))
             yield result
 
     def close(self):
