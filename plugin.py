@@ -3,14 +3,10 @@ from pkg_resources import resource_string
 from yandextank.common.interfaces import AbstractPlugin, AggregateResultListener, AbstractInfoWidget, GeneratorPlugin, AbstractCriterion
 from yandextank.plugins.Console import Plugin as ConsolePlugin
 from yandextank.plugins.Autostop import Plugin as AutostopPlugin
-#from ..Console import Plugin as ConsolePlugin
-#from ..Autostop import Plugin as AutostopPlugin
 from yandextank.plugins.Console import screen as ConsoleScreen
 
-#from ...common.util import splitstring
 from yandextank.common.util import splitstring
 from .reader import LocustReader #, LocustStatsReader
-#from ...stepper import StepperWrapper
 from yandextank.stepper import StepperWrapper
 
 from locust import runners as lr
@@ -33,7 +29,6 @@ from locust.util.time import parse_timespan
 
 import tempfile
 
-#_internals = [Locust, HttpLocust]
 version = locust.__version__
 
 logger = logging.getLogger(__name__)
@@ -53,6 +48,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self._user_count = 0
         self._state = ''
         self._locuststats = ''
+        self._locustslaves = None
         self.stats_reader = None
         self.reader = None
         self.host = None
@@ -70,7 +66,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.num_clients = int(1)
         self.hatch_rate = float(1)
         self.num_requests = None
-        self.run_time = '60s'
+        self.run_time = None
         self.loglevel = 'INFO'
         self.logfile = None
         self.csvfilebase = None
@@ -81,20 +77,16 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.show_task_ratio = False
         self.show_task_ratio_json = False
         self.show_version = True
-        #self.locustlog_file = None
-        #self.locustlog_fd = None
         self.locustlog_level = 'INFO'
-        #self._stat_log = None
         self.cfg = cfg
-        self.max_data_delay = 10
+        self.max_data_delay = '10s'
 
         # setup logging
         ll.setup_logging(self.loglevel, self.logfile)
 
     @property
-#    def set_locustlog_file(self):
     def locustlog_file(self):
-        logger.info("######## DEBUG: self.core.artifacts_dir = {}".format(self.core.artifacts_dir))
+        logger.debug("######## DEBUG: self.core.artifacts_dir = {}".format(self.core.artifacts_dir))
         return "{}/locust.log".format(self.core.artifacts_dir)
 
 
@@ -134,14 +126,11 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.locustfile = self.get_option("locustfile")
         self.num_clients = int(self.get_option ("num_clients"))
         self.hatch_rate = float(self.get_option("hatch_rate"))
-        #self.num_requests = int(self.get_option("num_requests"))
         self.run_time = self.get_option("run_time")
         self.logfile = self.get_option("logfile")
         self.loglevel = self.get_option("loglevel")
         self.csvfilebase = self.get_option("csvfilebase")
-        self.max_data_delay = self.get_option("max_data_delay")
-        #self.locustlog_file = self.get_option("locustlog_file")
-        #self.locustlog_file = self.set_locustlog_file()
+        self.max_data_delay = parse_timespan(self.get_option("max_data_delay"))
         self.locustlog_level = self.get_option("locustlog_level")
         self.show_version = True
         self.master = self.get_option("master")
@@ -178,8 +167,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             widget = LocustInfoWidget(self)
             console.add_info_widget(widget)
             logger.debug("######## DEBUG: locust widget added to console")
-#            self.core.job.aggregator.add_result_listener(widget)
-            logger.debug("######## DEBUG: add result listener")
 
 
         try:
@@ -214,12 +201,20 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             sys.exit(1)
 
 
+    def is_any_slave_up(self):
+        if self.master and self._locustslaves is not None:
+            poll_slaves = [s.poll() for s in self._locustslaves]
+            res = any([False if x is not None else True for x in poll_slaves])
+            logger.debug("######## DEBUG: is_any_slave_up/any(res) = {}".format(res))
+            return res
+        elif self.master:
+            logger.error("##### Locust plugin: no slave alive to poll")
+            return False
+        else:
+            return False
+
+
     def start_test(self):
-#        # setup logging
-#        ll.setup_logging(self.loglevel, self.logfile)
-#        if self.locustlog_file:
-#            ll.setup_resplogging(self.locustlog_level, self.locustlog_file)
-        #logger = logging.getLogger(__name__)
 
         if self.show_version:
             logger.info("##### Locust plugin: Locust version = %s" % version)
@@ -237,23 +232,23 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             Spawn *local* locust slaves : data aggregation will NOT work with *remote* slaves
             """
             try:
-                #slaves = [SlaveLocustRunner(self._locustclasses, self._options) for _ in range(count)]
                 args = ['locust']
                 args.append('--locustfile={}'.format(str(self.locustfile)))
                 args.append('--slave')
                 args.append('--master-host={}'.format(self.master_host))
                 args.append('--master-port={}'.format(self.master_port))
-                args.append('--resplogfile={}/locust.log'.format(self.core.artifacts_dir))
-                args.append('2>&1')
-                args.append('> {}/locust-slaves.log'.format(self.core.artifacts_dir))
-                args.append('&')
+                args.append('--resplogfile={}'.format(self.locustlog_file))
                 logger.info("##### Locust plugin: slave args = {}".format(args))
 
-                slaves = [subprocess.call(' '.join(args), shell=True) for _ in range(count)]
+                # Spawning the slaves in shell processes (security warning with the use of 'shell=True')
+                self._locustslaves = [subprocess.Popen(' '.join(args), shell=True, stdin=None,
+                            stdout=open('{}/locust-slave-{}.log'.format(self.core.artifacts_dir, i), 'w'),
+                            stderr=subprocess.STDOUT) for i in range(count)]
+                #slaves = [SlaveLocustRunner(self._locustclasses, self._options) for _ in range(count)] # <-- WRONG: This will spawn slave running on the same CPU core as master
                 time.sleep(1)
 
-                logger.info("##### Locust plugin: Started {} new locust slave(s)".format(len(slaves)))
-                logger.info("##### Locust plugin: locust slave(s) PID = {}".format(slaves))
+                logger.info("##### Locust plugin: Started {} new locust slave(s)".format(len(self._locustslaves)))
+                logger.info("##### Locust plugin: locust slave(s) PID = {}".format(self._locustslaves))
             except socket.error as e:
                 logger.error("##### Locust plugin: Failed to connect to the Locust master: %s", e)
                 sys.exit(-1)
@@ -264,9 +259,12 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         try:
             logger.info("##### Locust plugin: Starting Locust %s" % version)
 
-            # run the locust
+            # run the locust 
+
+            ### FIXME
             #if self.csvfilebase:
             #    gevent.spawn(stats_writer, self.csvfilebase)
+            ### /FIXME
 
             if self.run_time:
                 if not self.no_web:
@@ -282,9 +280,14 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     def timelimit_stop():
                         logger.info("##### Locust plugin: Time limit reached. Stopping Locust.")
                         self._locustrunner.quit()
-                    gevent.spawn_later(self.run_time, timelimit_stop)
+                        logger.debug("######## DEBUG: timelimit_stop()/self._locustrunner.quit() passed")
+                    def on_greenlet_completion():
+                        logger.debug("######## DEBUG: Locust plugin: on_greenlet_completion()")
 
-
+                    #gevent.spawn_later(self.run_time, timelimit_stop)
+                    gl = gevent.spawn_later(self.run_time, timelimit_stop)
+                    # linking timelimit greenlet to main greenlet and get a feedback of its execution
+                    gl.link(on_greenlet_completion)
 
 
 
@@ -315,28 +318,31 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                 logger.info("##### Locust plugin: MasterLocustRunner started")
                 time.sleep(1)
                 if self.no_web:
-                    spawn_local_slaves(self.expect_slaves)
+                    gevent.spawn(spawn_local_slaves(self.expect_slaves))
                     while len(self._locustrunner.clients.ready) < self.expect_slaves:
                         logger.info("##### Locust plugin: Waiting for slaves to be ready, %s of %s connected",
                                      len(self._locustrunner.clients.ready), self.expect_slaves)
                         time.sleep(1)
-
                     self._locustrunner.start_hatching(self.num_clients, self.hatch_rate)
+                    logger.debug("######## DEBUG: MasterLocustRunner/start_hatching()")
                     main_greenlet = self._locustrunner.greenlet
-                    if self.run_time:
+                if self.run_time:
+                    try:
                         spawn_run_time_limit_greenlet()
+                    except Exception as e:
+                        logger.error("##### Locust plugin: exception raised in spawn_run_time_limit_greenlet() = {}".format(e))
 
             # locust runner : master/slave mode (slave here)
-            elif self.slave and self._locustrunner is None:
-                if self.run_time:
-                    logger.error("##### Locust plugin: --run-time should be specified on the master node, and not on slave nodes")
-                    sys.exit(1)
-                try:
-                    self._locustrunner = SlaveLocustRunner(self._locustclasses, self._options)
-                    main_greenlet = self._locustrunner.greenlet
-                except socket.error as e:
-                    logger.error("##### Locust plugin: Failed to connect to the Locust master: %s", e)
-                    sys.exit(-1)
+            #elif self.slave and self._locustrunner is None:
+            #    if self.run_time:
+            #        logger.error("##### Locust plugin: --run-time should be specified on the master node, and not on slave nodes")
+            #        sys.exit(1)
+            #    try:
+            #        self._locustrunner = SlaveLocustRunner(self._locustclasses, self._options)
+            #        main_greenlet = self._locustrunner.greenlet
+            #    except socket.error as e:
+            #        logger.error("##### Locust plugin: Failed to connect to the Locust master: %s", e)
+            #        sys.exit(-1)
             return self._locustrunner
 
             self._locustrunner.greenlet.join()
@@ -353,14 +359,20 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         Shut down locust by firing quitting event, printing stats and exiting
         """
 
-        logger.info("##### Locust plugin: Waiting {} sec to aggregate latest data within Tank".format(self.max_data_delay))
+        logger.info("##### Locust plugin: max_data_delay -> Waiting {} seconds to aggregate latest data within Tank".format(self.max_data_delay))
 
-        if self._locustrunner is not None:
+        logger.debug("######## DEBUG: shutdown()/_locustrunner = {}".format(self._locustrunner))
+        logger.info("##### Locust plugin: Cleaning up runner...")
+        if self._locustrunner is not None and self.is_any_slave_up():
             #if self.csvfilebase:
             #    write_stat_csvs(self.csvfilebase)
-            self._locustrunner.quit()
-        events.quitting.fire(reverse=True)
+            retcode = self._locustrunner.quit()
+            logger.debug("######## DEBUG: shutdown()/_locustrunner.quit() passed # retcode = {}".format(retcode))
+        logger.info("##### Locust plugin: Running teardowns...")
         time.sleep(self.max_data_delay)
+        logger.info("##### Locust plugin: Data delay expired")
+        ### FIXME : possibly causing a greenlet looping infinitely
+        #events.quitting.fire(reverse=True)
         print_stats(self._locustrunner.request_stats)
         print_percentile_stats(self._locustrunner.request_stats)
         print_error_report()
@@ -380,8 +392,9 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         """
         logger.debug("######## DEBUG: is_test_finished()? -> Fetching locust status")
         logger.debug("######## DEBUG: is_test_finished() -> self._locustrunner.state = {}".format(self._locustrunner.state))
+        logger.debug("######## DEBUG: is_test_finished() -> is_any_slave_up() = {}".format(self.is_any_slave_up()))
         self._state = self._locustrunner.state
-        if self._locustrunner.state == 'stopped':
+        if self._locustrunner.state == 'stopped' or self.master and not self.is_any_slave_up():
             self._user_count = 0
             return 0
         else:
@@ -446,6 +459,11 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 #       info_ template += "\t## Locust file: {}\n".format(self.owner.locustfile)
         info_template += "\t## Locust state: {}\n".format(self.owner._state)
         info_template += "\t## Active users: {}\n".format(self.owner._user_count)
+        if self.owner.master:
+            info_template += "\t## Active slaves: {}\n".format(len(self.owner._locustrunner.clients.ready)
+                                                               + len(self.owner._locustrunner.clients.hatching)
+                                                               + len (self.owner._locustrunner.clients.running)
+                                                              ) 
 #        info_template += "\n\n"
 #        info_template += ConsoleScreen.markup.BG_CYAN + '#' * (ConsoleScreen.right_panel_width - 1) + '\n\n\n\n\n' #+ ConsoleScreen.markup.RESET
 
@@ -459,7 +477,6 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
         stats_template += "\t## Max resp time (ms): {}\n".format(self.owner._locuststats.max_response_time)
         stats_template += "\t## Average resp time (ms): {0:.2f}\n".format(self.owner._locuststats.avg_response_time)
         stats_template += "\t## Median resp time (ms): {}\n".format(self.owner._locuststats.median_response_time)
-#        stats_template += "\n\n"
         stats_template += ConsoleScreen.markup.GREEN + '#' * (ConsoleScreen.right_panel_width - 1) + ConsoleScreen.markup.RESET
 
         res += "{}".format(stats_template)
@@ -468,85 +485,3 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 
         return res
 
-#class UsedInstancesCriterion(AbstractCriterion):
-#    """
-#    Autostop criterion, based on active instances count
-#    """
-#    RC_INST = 24
-#
-#    @staticmethod
-#    def get_type_string():
-#        return 'instances'
-#
-#    def __init__(self, autostop, param_str):
-#        AbstractCriterion.__init__(self)
-#        self.seconds_count = 0
-#        self.autostop = autostop
-#        self.threads_limit = 1
-#
-#        level_str = param_str.split(',')[0].strip()
-#        if level_str[-1:] == '%':
-#            self.level = float(level_str[:-1]) / 100
-#            self.is_relative = True
-#        else:
-#            self.level = int(level_str)
-#            self.is_relative = False
-#        self.seconds_limit = expand_to_seconds(param_str.split(',')[1])
-#
-#        try:
-#            locust = autostop.core.get_plugin_of_type(Plugin)
-#            info = locust.get_info()
-#            if info:
-#                self.threads_limit = info.instances
-#            if not self.threads_limit:
-#                raise ValueError(
-#                    "Cannot create 'instances' criterion"
-#                    " with zero instances limit")
-#        except KeyError:
-#            logger.warning("No locust module, 'instances' autostop disabled")
-#
-#    def notify(self, data, stat):
-#        threads = stat["metrics"]["instances"]
-#        if self.is_relative:
-#            threads = float(threads) / self.threads_limit
-#        if threads > self.level:
-#            if not self.seconds_count:
-#                self.cause_second = (data, stat)
-#
-#            logger.debug(self.explain())
-#
-#            self.seconds_count += 1
-#            self.autostop.add_counting(self)
-#            if self.seconds_count >= self.seconds_limit:
-#                return True
-#        else:
-#            self.seconds_count = 0
-#
-#        return False
-#
-#    def get_rc(self):
-#        return self.RC_INST
-#
-#    def get_level_str(self):
-#        """
-#        String value for instances level
-#        """
-#        if self.is_relative:
-#            level_str = str(100 * self.level) + "%"
-#        else:
-#            level_str = self.level
-#        return level_str
-#
-#    def explain(self):
-#        items = (
-#            self.get_level_str(), self.seconds_count,
-#            self.cause_second[0].get('ts'))
-#        return (
-#            "Testing threads (instances) utilization"
-#            " higher than %s for %ss, since %s" % items)
-#
-#    def widget_explain(self):
-#        items = (self.get_level_str(), self.seconds_count, self.seconds_limit)
-#        return "Instances >%s for %s/%ss" % items, float(
-#            self.seconds_count) / self.seconds_limit
-#

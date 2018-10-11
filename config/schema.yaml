@@ -45,7 +45,7 @@ num_requests:
   default: 1
 run_time:
   type: string
-  default: 60s
+  default: ''
 loglevel:
   type: string
   default: 'INFO'
@@ -59,8 +59,8 @@ csvappend:
   type: boolean
   default: true
 max_data_delay:
-  type: integer
-  default: 10
+  type: string
+  default: '10s'
 #print_stats:
 #  type: boolean
 #  default: true
