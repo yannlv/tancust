@@ -407,8 +407,8 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 class Opts:
     def __init__(self, **entries):
         self.__dict__.update(entries)
-        self.no_reset_stats = False
-        self.reset_stats = True
+        self.no_reset_stats = True
+        self.reset_stats = False
 
 
 class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
