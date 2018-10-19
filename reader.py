@@ -40,7 +40,7 @@ dtypes = {
 }
 
 
-def string_to_df(data, active_threads):
+def string_to_df(data, active_threads, fail_ratio):
     start_time = time.time()
 
     # DEBUG
@@ -89,6 +89,7 @@ def string_to_df(data, active_threads):
         line['connect_time'] = 0
         line['send_time'] = 0
         line['active_threads'] = active_threads
+        line['fail_ratio'] = 100 * fail_ratio
 
 
         lines.append(line)
@@ -143,12 +144,12 @@ class LocustReader(object):
                 logger.debug("######## DEBUG: _read_locust_log_chunk()/len(ready_chunk) = {}".format(len(ready_chunk)))
                 if self.locust._locustrunner:
                     logger.debug("######## DEBUG: _read_locust_log_chunk()/self.locust._locustrunner.user_count = {}".format(self.locust._locustrunner.user_count))
-                    self.stat_queue.put(string_to_df(ready_chunk, self.locust._locustrunner.user_count))
-                    return string_to_df(ready_chunk, self.locust._locustrunner.user_count)
+                    self.stat_queue.put(string_to_df(ready_chunk, self.locust._locustrunner.user_count, self.locust._locuststats.fail_ratio))
+                    return string_to_df(ready_chunk, self.locust._locustrunner.user_count, self.locust._locuststats.fail_ratio)
                 else:
                     logger.debug("######## DEBUG: _read_locust_log_chunk()/self.locust._locustrunner.user_count : NO RUNNER YET")
-                    self.stat_queue.put(string_to_df(ready_chunk, 0))
-                    return string_to_df(ready_chunk, 0)
+                    self.stat_queue.put(string_to_df(ready_chunk, 0, 0))
+                    return string_to_df(ready_chunk, 0, 0)
 
             else:
                 self.buffer += parts[0]
@@ -166,7 +167,7 @@ class LocustReader(object):
             chunk = self._read_locust_log_chunk()
         # don't forget the buffer
         if self.buffer:
-            yield string_to_df(self.buffer)
+            yield string_to_df(self.buffer, 0, 0)
 
 
 
@@ -176,7 +177,7 @@ class LocustReader(object):
 class LocustStatAggregator(object):
     def __init__(self, source):
         self.worker_resptime = agg.Worker({"resp_time" : ["mean"]}, False)
-        self.worker_instances_rps = agg.Worker({"active_threads" : ["max"]}, False)
+        self.worker_instances_rps = agg.Worker({"active_threads" : ["max"], "fail_ratio": ["mean"]}, False)
         self.source = source
         self.groupby = 'tag'
 
