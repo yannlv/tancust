@@ -216,11 +216,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
 
     def start_test(self):
 
-        if self.show_version:
-            logger.info("##### Locust plugin: Locust version = %s" % version)
-            #print "Locust plugin: Locust version = %s".format(version)
-            #sys.exit(0)
-
         # install SIGTERM handler
         def sig_term_handler():
             logger.info("##### Locust plugin: Got SIGTERM signal")
@@ -287,7 +282,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
                     #gevent.spawn_later(self.run_time, timelimit_stop)
                     gl = gevent.spawn_later(self.run_time, timelimit_stop)
                     # linking timelimit greenlet to main greenlet and get a feedback of its execution
-                    gl.link(on_greenlet_completion)
+                    #gl.link(on_greenlet_completion)
 
 
 
@@ -378,7 +373,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         print_error_report()
         self.reader.close()
         logger.info("##### Locust plugin: Shutting down (exit code %s), bye." % code)
-        sys.exit(code)
 
     def is_test_finished(self):
         """
@@ -408,7 +402,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         else:
             logger.info("##### Locust plugin: Locust has been terminated already")
             self.shutdown(retcode)
-            sys.exit(retcode)
         return retcode
 
 class Opts:
@@ -453,7 +446,7 @@ class LocustInfoWidget(AbstractInfoWidget, AggregateResultListener):
 
         info_template = ConsoleScreen.markup.GREEN + '#' * left_spaces + info_banner
         info_template += "#" * right_spaces + ConsoleScreen.markup.RESET + "\n"
-        info_template += "\t## Target host: {}:{}\n".format(self.owner.host, self.owner.port)
+        info_template += "\t## Target host: {}\n".format(self.owner.host)
         info_template += "\t## Max users: {}\n".format(self.owner.num_clients)
         info_template += "\t## Hatch rate: {}\n".format(self.owner.hatch_rate)
 #       info_ template += "\t## Locust file: {}\n".format(self.owner.locustfile)

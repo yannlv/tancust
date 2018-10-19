@@ -51,12 +51,12 @@ def string_to_df(data, active_threads):
     # DEBUG
     #logger.debug("\n\n####### Locust reader:\n##### chunk =\n{}\n\n".format(chunk))
 
-    # Format locust log date to timestamp : '[2017-12-28 14:46:34,327]' -> 1514468794.327
     #locust_log_dt_obj = datetime.datetime.strptime(chunk.send_ts[0].replace('[','').replace(']',''), '%Y-%m-%d %H:%M:%S,%f')
 
     lines = []
     for line in csv_reader:
 
+        # Format locust log date to timestamp : '[2017-12-28 14:46:34,327]' -> 1514468794.327
         buff_ts = line.send_ts.iloc[0]
         buff_ts = buff_ts.replace('[','').replace(']','')
 
@@ -186,7 +186,7 @@ class LocustStatAggregator(object):
             by_tag = list(chunk.groupby([self.groupby]))
             stats = self.worker_resptime.aggregate(chunk)
             # DEBUG : print stats + data chunk
-			#logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
+            #logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### LSA.ts= {}\n  ##### LSA.stats= {}\n  ##### LSA.chunk= {}".format(ts, stats, chunk))
             result = [{
                 "ts": ts,
                 "metrics": {
@@ -196,8 +196,8 @@ class LocustStatAggregator(object):
                     "overall": self.worker_resptime.aggregate(chunk)
                 }
             }]
-			# DEBUG
-			#logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### result= {}\n".format(result))
+            # DEBUG
+            #logger.debug("######## DEBUG: LocustStatAggregator().__iter__\n  ##### result= {}\n".format(result))
             yield result
 
     def close(self):
