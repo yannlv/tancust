@@ -79,7 +79,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.show_version = True
         self.locustlog_level = 'INFO'
         self.cfg = cfg
-        self.max_data_delay = '10s'
 
         # setup logging
         ll.setup_logging(self.loglevel, self.logfile)
@@ -94,7 +93,7 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         return [
             "host", "port", "locustfile",
             "num_clients", "hatch_rate", "run_time", #"num_requests",
-            "logfile", "loglevel", "csvfilebase", "max_data_delay",
+            "logfile", "loglevel", "csvfilebase",
             "master", "master_bind_host", "master_bind_port", "expect_slaves",
             "master_host", "master_port"
         ]
@@ -130,7 +129,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         self.logfile = self.get_option("logfile")
         self.loglevel = self.get_option("loglevel")
         self.csvfilebase = self.get_option("csvfilebase")
-        self.max_data_delay = parse_timespan(self.get_option("max_data_delay"))
         self.locustlog_level = self.get_option("locustlog_level")
         self.show_version = True
         self.master = self.get_option("master")
@@ -354,7 +352,6 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
         Shut down locust by firing quitting event, printing stats and exiting
         """
 
-        logger.info("##### Locust plugin: max_data_delay -> Waiting {} seconds to aggregate latest data within Tank".format(self.max_data_delay))
 
         logger.debug("######## DEBUG: shutdown()/_locustrunner = {}".format(self._locustrunner))
         logger.info("##### Locust plugin: Cleaning up runner...")
@@ -364,8 +361,11 @@ class Plugin(AbstractPlugin, GeneratorPlugin):
             retcode = self._locustrunner.quit()
             logger.debug("######## DEBUG: shutdown()/_locustrunner.quit() passed # retcode = {}".format(retcode))
         logger.info("##### Locust plugin: Running teardowns...")
-        time.sleep(self.max_data_delay)
-        logger.info("##### Locust plugin: Data delay expired")
+
+        while not self.reader.is_stat_queue_empty():
+            logger.info("##### Locust plugin: {} items remaining is stats queue".format(self.reader.stat_queue.qsize()))
+            time.sleep(1)
+
         ### FIXME : possibly causing a greenlet looping infinitely
         #events.quitting.fire(reverse=True)
         print_stats(self._locustrunner.request_stats)

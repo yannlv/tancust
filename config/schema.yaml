@@ -58,9 +58,6 @@ csvfilebase:
 csvappend:
   type: boolean
   default: true
-max_data_delay:
-  type: string
-  default: '10s'
 #print_stats:
 #  type: boolean
 #  default: true

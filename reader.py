@@ -169,7 +169,11 @@ class LocustReader(object):
         if self.buffer:
             yield string_to_df(self.buffer, 0, 0)
 
-
+    def is_stat_queue_empty(self):
+        if self.stat_queue.qsize() > 0:
+            return False
+        else:
+            return True
 
     def close(self):
         self.closed = True
